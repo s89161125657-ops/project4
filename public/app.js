@@ -22,7 +22,7 @@
   const $ = (id) => document.getElementById(id);
   const els = {
     paste: $('pasteBtn'), process: $('processBtn'), copy: $('copyBtn'), clear: $('clearBtn'),
-    stripSig: $('stripSig'), source: $('source'), sourceBox: $('sourceBox'),
+    stripSig: $('stripSig'), last2: $('last2Btn'), source: $('source'), sourceBox: $('sourceBox'),
     status: $('status'), legend: $('legend'), result: $('result')
   };
 
@@ -111,7 +111,6 @@
     let who = msg.name || msg.email || (isRu ? 'Отправитель не определён' : 'Unknown sender');
     if (isRu && msg.name) who = applyGlossary(who);
     let line = '<b>' + esc(who) + '</b>';
-    if (msg.email && msg.name) line += ' (' + esc(msg.email) + ')';
     parts.push(line);
     if (dateText) parts.push(esc(dateText));
     return parts.join(', ');
@@ -185,6 +184,25 @@
   }
 
   // ---------- Основной сценарий ----------
+  // Сколько последних писем показывать и переводить (0 — все)
+  let onlyLast = 0;
+
+  // n самых свежих писем: по датам, если они есть у всех, иначе первые n
+  // (почтовые клиенты ставят новые письма в начало цепочки). Порядок сохраняется.
+  function pickLatest(messages, n) {
+    if (!n || messages.length <= n) return messages;
+    const ts = (m) => m.date ? Date.UTC(m.date.y, m.date.m - 1, m.date.d, m.date.hh || 0, m.date.mm || 0) : null;
+    if (messages.every((m) => ts(m) !== null)) {
+      const top = messages.map((m, i) => ({ i, t: ts(m) }))
+        .sort((a, b) => b.t - a.t || a.i - b.i)
+        .slice(0, n)
+        .map((x) => x.i)
+        .sort((a, b) => a - b);
+      return top.map((i) => messages[i]);
+    }
+    return messages.slice(0, n);
+  }
+
   async function processText() {
     const text = els.source.value;
     const id = ++runId;
@@ -196,7 +214,8 @@
       setStatus('Нет текста для обработки.', true);
       return;
     }
-    const messages = parseThread(text, { stripSignatures: els.stripSig.checked }).filter((m) => m.lines.length || !m.unknown);
+    const all = parseThread(text, { stripSignatures: els.stripSig.checked }).filter((m) => m.lines.length || !m.unknown);
+    const messages = pickLatest(all, onlyLast);
     if (!messages.length) {
       setStatus('Не удалось найти письма в тексте.', true);
       return;
@@ -204,13 +223,15 @@
     current = { messages, translations: null };
     els.copy.disabled = false;
     const senders = new Set(messages.map((m) => senderKey(m) || '?')).size;
-    const summary = 'Писем: ' + messages.length + ', отправителей: ' + senders + '.';
+    const summary = (messages.length < all.length
+      ? 'Показаны ' + messages.length + ' последних письма из ' + all.length
+      : 'Писем: ' + messages.length) + ', отправителей: ' + senders + '.';
     setStatus(summary + ' Перевожу…');
     render();
 
     // Собираем тексты для перевода (русские тексты не переводим)
     // Имена и фамилии участников переписки не переводим — заменяем их метками
-    const names = collectNames(messages.flatMap((m) => [m, ...(m.recipients || [])]));
+    const names = collectNames(all.flatMap((m) => [m, ...(m.recipients || [])]));
     const texts = [];
     const jobs = messages.map((msg) => {
       const job = { body: -1, date: -1, names: [] };
@@ -244,6 +265,18 @@
   }
 
   async function pasteFromClipboard() {
+    onlyLast = 0;
+    await readClipboardAndProcess();
+  }
+
+  // Перевести только 2 последних письма: берём текст из поля, а если оно пустое — из буфера обмена
+  async function translateLastTwo() {
+    onlyLast = 2;
+    if (els.source.value.trim()) processText();
+    else await readClipboardAndProcess();
+  }
+
+  async function readClipboardAndProcess() {
     try {
       if (!navigator.clipboard || !navigator.clipboard.readText) throw new Error('unsupported');
       const text = await navigator.clipboard.readText();
@@ -265,7 +298,7 @@
     current.messages.forEach((msg, i) => {
       const tr = current.translations && current.translations[i];
       const head = (d, ru) => ((ru && msg.name ? applyGlossary(msg.name) : msg.name) || msg.email || 'Отправитель не определён') +
-        (msg.name && msg.email ? ' (' + msg.email + ')' : '') + (d ? ', ' + d : '');
+        (d ? ', ' + d : '');
       out.push(head(msg.dateRaw), ...msg.lines, '');
       if (tr && tr.lines) out.push(head(msg.date ? formatDateRu(msg.date) : tr.date || msg.dateRaw, true), ...tr.lines, '');
     });
@@ -300,7 +333,8 @@
   }
 
   els.paste.addEventListener('click', pasteFromClipboard);
-  els.process.addEventListener('click', processText);
+  els.process.addEventListener('click', () => { onlyLast = 0; processText(); });
+  els.last2.addEventListener('click', translateLastTwo);
   els.copy.addEventListener('click', copyResult);
   els.clear.addEventListener('click', () => {
     runId++;
@@ -313,5 +347,5 @@
     setStatus('');
   });
   els.stripSig.addEventListener('change', () => { if (els.source.value.trim()) processText(); });
-  els.source.addEventListener('paste', () => setTimeout(processText, 0));
+  els.source.addEventListener('paste', () => setTimeout(() => { onlyLast = 0; processText(); }, 0));
 })();
