@@ -458,11 +458,13 @@ test('images stay in the text; logo in signature goes with the signature', () =>
 
 test('elapsed time between messages', () => {
   const d = (y, m, dd, hh, mm) => ({ y, m, d: dd, hh, mm });
-  assert.deepEqual(formatElapsed(d(2025, 9, 22, 10, 15), d(2025, 9, 19, 16, 2)), { ru: '2 дня 18 часов 13 минут', en: '2 days 18 hours 13 minutes' });
+  assert.deepEqual(formatElapsed(d(2025, 9, 22, 10, 15), d(2025, 9, 19, 16, 2), 180), { ru: '2 дня 18 часов 13 минут', en: '2 days 18 hours 13 minutes' });
   assert.deepEqual(formatElapsed(d(2025, 9, 22, 9, 14), d(2025, 9, 22, 10, 15)), { ru: '1 час 1 минута', en: '1 hour 1 minute' });
   assert.deepEqual(formatElapsed(d(2025, 9, 22, 10, 0), d(2025, 9, 22, 10, 25)), { ru: '0 часов 25 минут', en: '0 hours 25 minutes' });
   assert.deepEqual(formatElapsed(d(2025, 10, 23, 10, 0), d(2025, 9, 22, 8, 0)).ru, '31 день 2 часа 0 минут');
   assert.equal(formatElapsed(d(2025, 9, 22, null, null), d(2025, 9, 22, 10, 0)), null);
+  // Пекинское время (UTC+8) против московского (UTC+3): 17:30 в Пекине = 12:30 в Москве
+  assert.deepEqual(formatElapsed({ ...d(2026, 9, 24, 17, 30), tz: 480 }, d(2026, 9, 24, 11, 46), 180), { ru: '0 часов 44 минуты', en: '0 hours 44 minutes' });
 });
 
 test('board -> плата; images are protected from translation', () => {
@@ -493,4 +495,40 @@ test('.eml inline image is extracted and referenced by cid', () => {
   assert.equal(mail.images[0].mime, 'image/png');
   assert.deepEqual(Buffer.from(mail.images[0].bytes), png);
   assert.deepEqual(parseThread(mail.text)[0].lines, ['Dear Sergei,', 'See photo:', '[cid:photo1@x]']);
+});
+
+test('compressed RTF (MS-OXRTFCP example) is decompressed', () => {
+  const hex = '2d0000002b0000004c5a4675f1c5c7a703000a007263706731323542320af32068656c090020627705b06c647d0a800fa0';
+  const out = MailFile.decompressRtf(new Uint8Array(Buffer.from(hex, 'hex')));
+  assert.equal(Buffer.from(out).toString('latin1'), '{\\rtf1\\ansi\\ansicpg1252\\pard hello world}\r\n');
+});
+
+test('HTML is extracted from RTF (\\fromhtml1) with per-font encodings and images', () => {
+  const rtf = [
+    '{\\rtf1\\ansi\\ansicpg1251\\fromhtml1 \\deff0',
+    '{\\fonttbl{\\f0\\fswiss\\fcharset204 Arial;}{\\f1\\fnil\\fcharset134 SimSun;}}',
+    '{\\*\\htmltag19 <html>}{\\*\\htmltag64 <p>}\\htmlrtf {\\htmlrtf0',
+    "{\\f1 \\'bc\\'fb\\'cf\\'c2\\'cd\\'bc}",
+    ' FUSE202 \\u8212 ?\\\'c8\\\'cd',
+    '\\htmlrtf }\\htmlrtf0 {\\*\\htmltag72 </p>}',
+    '{\\*\\htmltag84 <img src="cid:image005.png@01DD4C50.EAFB1100">}',
+    '\\htmlrtf {\\f0 hidden rtf only}\\htmlrtf0 {\\*\\htmltag27 </html>}}'
+  ].join('\r\n');
+  const html = MailFile.rtfToHtml(new Uint8Array(Buffer.from(rtf, 'latin1')));
+  assert.equal(html.replace(/\s+/g, ' ').trim(), '<html><p>见下图 FUSE202 —ИН</p><img src="cid:image005.png@01DD4C50.EAFB1100"></html>');
+  assert.equal(MailFile.htmlToText(html), '见下图 FUSE202 —ИН\n\n[cid:image005.png@01DD4C50.EAFB1100]');
+});
+
+test('image cid is not mistaken for a signature e-mail; stacked multilingual closings', () => {
+  const lines = ['希望以上能帮到您。', '[cid:image005.png@01DD4C50.EAFB1100]'];
+  assert.deepEqual(stripSignature(lines), lines);
+  assert.deepEqual(stripSignature([
+    'The voltage is 220V.',
+    'С уважением, | С поштовањем | 最 诚挚的问候 | सादर| تقبلوا أخلص التحيات، |',
+    'Atentamente | Meilleures salutations | Mit freundlichen Grüßen | Best regards |',
+    'Sergei Zakharov', 'Service project manager', 'mob: +7 (965) 426-11-50', 'www.awt.ru',
+    '[cid:image001.png@01DD4C4E.19D5E070]'
+  ]), ['The voltage is 220V.']);
+  assert.deepEqual(parseSender('Bao Haiping 包海平 (FH) <haiping.bao@haierbiomedical.com>'),
+    { name: 'Bao Haiping 包海平', email: 'haiping.bao@haierbiomedical.com' });
 });

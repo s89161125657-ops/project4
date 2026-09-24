@@ -203,12 +203,21 @@
       if (v) { date = filetimeToDate(v[0], v[1]); if (date) break; }
     }
 
-    let body = str('1000');
-    if (!body.trim()) {
-      const htmlBin = bin('1013');
-      const html = htmlBin ? decodeBytes(htmlBin, htmlCharset(htmlBin) || ansiCharset) : str('1013');
-      if (html) body = htmlToText(html);
+    // Текст берём из HTML-версии письма (PR_HTML или HTML внутри сжатого RTF):
+    // только в ней указано, где стоят картинки, и нет жёстких переносов строк.
+    // Если HTML нет — обычный текст (PR_BODY).
+    let html = '';
+    const htmlBin = bin('1013');
+    if (htmlBin) html = decodeBytes(htmlBin, htmlCharset(htmlBin) || ansiCharset);
+    else html = str('1013');
+    if (!html) {
+      const rtf = bin('1009');
+      if (rtf) {
+        try { html = rtfToHtml(decompressRtf(rtf)) || ''; } catch { html = ''; }
+      }
     }
+    let body = html ? htmlToText(html) : '';
+    if (!body.trim()) body = str('1000');
     // Картинки из вложений (для меток [cid:...] в тексте)
     const images = [];
     const attachDirs = new Set([...streams.keys()].filter((k) => k.startsWith('__attach_version1.0_#')).map((k) => k.split('/')[0]));
@@ -251,6 +260,167 @@
     return m ? m[1] : null;
   }
 
+  // ---------- Сжатый RTF (PR_RTF_COMPRESSED) и HTML внутри него ----------
+  const RTF_PREBUF = '{\\rtf1\\ansi\\mac\\deff0\\deftab720{\\fonttbl;}{\\f0\\fnil \\froman \\fswiss \\fmodern \\fscript \\fdecor MS Sans SerifSymbolArialTimes New RomanCourier{\\colortbl\\red0\\green0\\blue0\r\n\\par \\pard\\plain\\f0\\fs20\\b\\i\\u\\tab\\tx';
+
+  /** Распаковка LZFu (MS-OXRTFCP). Возвращает Uint8Array с RTF. */
+  function decompressRtf(data) {
+    const dv = new DataView(data.buffer, data.byteOffset, data.byteLength);
+    const rawSize = dv.getUint32(4, true);
+    const type = dv.getUint32(8, true);
+    if (type === 0x414c454d) return data.subarray(16, 16 + rawSize); // MELA — без сжатия
+    if (type !== 0x75465a4c) throw new Error('Неизвестный формат RTF');
+    const dict = new Uint8Array(4096);
+    for (let i = 0; i < RTF_PREBUF.length; i++) dict[i] = RTF_PREBUF.charCodeAt(i);
+    let wp = RTF_PREBUF.length;
+    const out = new Uint8Array(rawSize);
+    let op = 0;
+    let ip = 16;
+    while (ip < data.length && op < rawSize) {
+      const control = data[ip++];
+      for (let bit = 0; bit < 8 && ip < data.length && op < rawSize; bit++) {
+        if (control & (1 << bit)) {
+          if (ip + 1 >= data.length) return out.subarray(0, op);
+          const word = (data[ip] << 8) | data[ip + 1];
+          ip += 2;
+          const offset = word >> 4;
+          const len = (word & 0xf) + 2;
+          if (offset === (wp & 0xfff)) return out.subarray(0, op);
+          for (let k = 0; k < len && op < rawSize; k++) {
+            const c = dict[(offset + k) & 0xfff];
+            out[op++] = c;
+            dict[wp & 0xfff] = c;
+            wp++;
+          }
+        } else {
+          const c = data[ip++];
+          out[op++] = c;
+          dict[wp & 0xfff] = c;
+          wp++;
+        }
+      }
+    }
+    return out.subarray(0, op);
+  }
+
+  // \fcharset -> кодовая страница Windows
+  const FCHARSET_CP = { 0: 1252, 128: 932, 129: 949, 134: 936, 136: 950, 161: 1253, 162: 1254, 163: 1258, 177: 1255, 178: 1256, 186: 1257, 204: 1251, 222: 874, 238: 1250 };
+  if (typeof TextDecoder !== 'undefined') {
+    try { new TextDecoder('windows-874'); } catch { delete FCHARSET_CP[222]; }
+  }
+
+  // Группы, которые целиком пропускаются
+  const RTF_SKIP = new Set(['fonttbl', 'colortbl', 'stylesheet', 'info', 'pict', 'object', 'listtable', 'listoverridetable', 'rsidtbl', 'latentstyles', 'themedata', 'datastore', 'xmlnstbl', 'generator']);
+
+  /** Извлекает исходный HTML из RTF с \fromhtml1 (MS-OXRTFEX). Если HTML нет — null. */
+  function rtfToHtml(rtfBytes) {
+    const rtf = bytesToLatin1(rtfBytes);
+    if (!/\\fromhtml1/.test(rtf.slice(0, 4000))) return null;
+    const cpm = /\\ansicpg(\d+)/.exec(rtf.slice(0, 4000));
+    const docCharset = (cpm && codepageName(+cpm[1])) || 'windows-1252';
+    // Кодировка байтов \'hh зависит от шрифта: {\fN ...\fcharsetM ...} в таблице шрифтов
+    const fontCharset = new Map();
+    const fre = /\{\\f(\d+)[^{};]*?\\fcharset(\d+)/g;
+    let fm;
+    while ((fm = fre.exec(rtf.slice(0, 200000)))) {
+      const cp = FCHARSET_CP[+fm[2]];
+      if (cp && !fontCharset.has(+fm[1])) fontCharset.set(+fm[1], codepageName(cp));
+    }
+    const deff = /\\deff(\d+)/.exec(rtf.slice(0, 4000));
+    const parts = [];
+    let bytes = [];
+    let bytesCharset = docCharset;
+    const flushBytes = () => { if (bytes.length) { parts.push(decodeBytes(new Uint8Array(bytes), bytesCharset)); bytes = []; } };
+    const emit = (str) => { flushBytes(); parts.push(str); };
+    const pushByte = (b) => {
+      const cs = fontCharset.get(st.font) || docCharset;
+      if (cs !== bytesCharset) { flushBytes(); bytesCharset = cs; }
+      bytes.push(b);
+    };
+
+    let st = { htmlrtf: false, tag: false, skip: false, uc: 1, font: deff ? +deff[1] : 0 };
+    const stack = [];
+    let skipChars = 0;
+    let i = 0;
+    const n = rtf.length;
+    const out = () => !st.skip && (st.tag || !st.htmlrtf);
+    while (i < n) {
+      const c = rtf[i];
+      if (c === '{') {
+        stack.push(st);
+        st = Object.assign({}, st);
+        i++;
+        // Назначение: {\*\htmltag... }, {\*\mhtmltag...}, {\fonttbl ...}
+        const m = /^(\\\*)?\\([a-zA-Z]+)(-?\d+)?/.exec(rtf.slice(i, i + 40));
+        if (m) {
+          const word = m[2];
+          if (m[1]) {
+            if (word === 'htmltag') st.tag = true;
+            else st.skip = true; // \mhtmltag и прочие служебные назначения
+          } else if (RTF_SKIP.has(word)) st.skip = true;
+        }
+        continue;
+      }
+      if (c === '}') {
+        st = stack.pop() || st;
+        i++;
+        continue;
+      }
+      if (c === '\\') {
+        const next = rtf[i + 1];
+        if (next === '\\' || next === '{' || next === '}') {
+          if (skipChars > 0) skipChars--;
+          else if (out()) emit(next);
+          i += 2;
+          continue;
+        }
+        if (next === "'") {
+          const hex = rtf.substr(i + 2, 2);
+          i += 4;
+          if (skipChars > 0) { skipChars--; continue; }
+          if (out()) pushByte(parseInt(hex, 16));
+          continue;
+        }
+        if (next === '*') { i += 2; continue; }
+        const m = /^\\([a-zA-Z]+)(-?\d+)? ?/.exec(rtf.slice(i, i + 40));
+        if (!m) { i += 2; continue; }
+        i += m[0].length;
+        const word = m[1];
+        const num = m[2] === undefined ? null : +m[2];
+        if (word === 'htmlrtf') { st.htmlrtf = num !== 0; continue; }
+        if (word === 'uc') { st.uc = num || 0; continue; }
+        if (word === 'f' && num !== null) { st.font = num; continue; }
+        if (word === 'u') {
+          if (out()) emit(String.fromCharCode(num < 0 ? num + 65536 : num));
+          skipChars = st.uc;
+          continue;
+        }
+        if (skipChars > 0) { skipChars--; continue; }
+        if (!out()) continue;
+        if (word === 'par' || word === 'line') emit('\n');
+        else if (word === 'tab') emit('\t');
+        else if (word === 'emdash') emit('—');
+        else if (word === 'endash') emit('–');
+        else if (word === 'lquote') emit('‘');
+        else if (word === 'rquote') emit('’');
+        else if (word === 'ldblquote') emit('“');
+        else if (word === 'rdblquote') emit('”');
+        else if (word === 'bullet') emit('•');
+        continue;
+      }
+      if (c === '\r' || c === '\n') { i++; continue; }
+      if (skipChars > 0) { skipChars--; i++; continue; }
+      if (out()) {
+        const code = c.charCodeAt(0);
+        if (code >= 0x80) pushByte(code);
+        else emit(c);
+      }
+      i++;
+    }
+    flushBytes();
+    return parts.join('');
+  }
+
   // ---------- HTML -> текст ----------
   const ENTITIES = { nbsp: ' ', amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", laquo: '«', raquo: '»', mdash: '—', ndash: '–', hellip: '…', copy: '©', reg: '®' };
 
@@ -258,6 +428,8 @@
     return String(html)
       .replace(/<!--[\s\S]*?-->/g, '')
       .replace(/<(script|style|head|title|xml)\b[\s\S]*?<\/\1>/gi, '')
+      // Переносы строк в исходном HTML — это просто пробелы
+      .replace(/\s+/g, ' ')
       .replace(/<img\b[^>]*>/gi, (tag) => {
         const src = (/\bsrc\s*=\s*["']?([^"'\s>]+)/i.exec(tag) || [])[1] || '';
         if (/^cid:/i.test(src)) return '\n[' + src + ']\n';
@@ -437,5 +609,5 @@
     return fileToMail(name, bytes).text;
   }
 
-  return { fileToMail, fileToText, parseMsg, parseEml, htmlToText, mailToText, readCfbRootStreams };
+  return { decompressRtf, rtfToHtml, fileToMail, fileToText, parseMsg, parseEml, htmlToText, mailToText, readCfbRootStreams };
 });

@@ -281,6 +281,7 @@
     const em = s.match(EMAIL_RE_G);
     const email = em ? em[0].toLowerCase() : '';
     let name = s.replace(EMAIL_RE_G, ' ')
+      .replace(/\((?![^)]*@)[^)]*\)/g, ' ') // "(FH)", "(Sales)"
       .replace(/[<>\[\]()]/g, ' ')
       .replace(/["'«»“”‘’]/g, '')
       .replace(/\s{2,}/g, ' ')
@@ -325,6 +326,8 @@
   // Короткая строка из слов с заглавной буквы (имя, должность, отдел) или с контактами
   function isSignatureLike(line) {
     if (isImageOnly(line)) return true; // логотип в подписи
+    // Многоязычные прощания через "|": "С уважением, | Best regards | 诚挚的问候 |"
+    if (line.length < 200 && /\|/.test(line) && !/[.?!。？！]\s*$/.test(line)) return true;
     if (CONTACT_RE.test(line) || TITLE_RE.test(line)) return true;
     if (line.length > 40 || /[.?!。？！:]\s*$/.test(line)) return false;
     const words = line.split(/\s+/);
@@ -338,12 +341,15 @@
     if (dash >= 0) lines = lines.slice(0, dash);
 
     // 2) Последнее прощание, после которого идёт только подпись
+    const isClosing = (l) => (l.length <= 80 || (/\|/.test(l) && l.length <= 250)) && CLOSING_RE.test(l);
     for (let i = lines.length - 1; i >= 0; i--) {
       if (lines.length - i > 25) break;
-      if (lines[i].length <= 80 && CLOSING_RE.test(lines[i])) {
+      if (isClosing(lines[i])) {
         const rest = lines.slice(i + 1);
         const nameOnSameLine = lines[i].replace(CLOSING_RE, '');
         if (rest.every(isSignatureLike) && (!nameOnSameLine || isSignatureLike(nameOnSameLine))) {
+          // Несколько прощаний подряд ("С уважением, | ..." и "Atentamente | ... | Best regards")
+          while (i > 0 && isClosing(lines[i - 1]) && isSignatureLike(lines[i - 1].replace(CLOSING_RE, '') || 'X')) i--;
           return lines.slice(0, i);
         }
         break;
@@ -355,8 +361,11 @@
     let contacts = 0;
     while (start > 0 && isSignatureLike(lines[start - 1])) {
       start--;
-      if (CONTACT_RE.test(lines[start])) contacts++;
+      // cid картинки (image001.png@01DC...) похож на e-mail — это не контакт
+      if (!isImageOnly(lines[start]) && CONTACT_RE.test(lines[start])) contacts++;
     }
+    // Картинки в начале блока — часть текста письма (фото), а не логотип подписи
+    while (start < lines.length && isImageOnly(lines[start])) start++;
     if (contacts > 0 && start > 0) {
       // Убираем и строку благодарности прямо перед подписью
       if (/^(?:thanks?(?: you)?(?: very much)?|thx|спасибо(?: большое)?|谢谢|感谢)[\s,.!！，。]*$/i.test(lines[start - 1])) start--;
@@ -519,6 +528,9 @@
       if (!msg.name && msg.email && nameByEmail.has(msg.email)) msg.name = nameByEmail.get(msg.email);
       if (!msg.email && msg.name && emailByName.has(msg.name.toLowerCase())) msg.email = emailByName.get(msg.name.toLowerCase());
       msg.date = parseDate(msg.dateRaw);
+      // Заголовок цитаты пишет почта отвечающего в своём часовом поясе.
+      // Дата в китайском формате (2026年9月24日) — почта в Китае: пекинское время, UTC+8.
+      if (msg.date && /[年月日]|上午|下午/.test(msg.dateRaw)) msg.date.tz = 480;
     }
     return messages;
   }
@@ -608,9 +620,11 @@
    * Возвращает { ru, en } ("2 дня 3 часа 15 минут" / "2 days 3 hours 15 minutes");
    * меньше суток — только часы и минуты. null, если у даты нет времени.
    */
-  function formatElapsed(a, b) {
+  function formatElapsed(a, b, localTz) {
     if (!a || !b || a.hh === null || a.hh === undefined || b.hh === null || b.hh === undefined) return null;
-    const t = (x) => Date.UTC(x.y, x.m - 1, x.d, x.hh, x.mm);
+    // tz — смещение от UTC в минутах; если не известно — часовой пояс компьютера
+    const local = localTz !== undefined ? localTz : -new Date().getTimezoneOffset();
+    const t = (x) => Date.UTC(x.y, x.m - 1, x.d, x.hh, x.mm) - (x.tz !== undefined ? x.tz : local) * 60000;
     let min = Math.round(Math.abs(t(a) - t(b)) / 60000);
     const days = Math.floor(min / 1440);
     min -= days * 1440;
