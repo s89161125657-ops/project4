@@ -1,0 +1,97 @@
+:root {
+  --bg: #f4f5f7;
+  --card: #ffffff;
+  --text: #1c1e21;
+  --muted: #5f6670;
+  --line: #dde1e6;
+  --accent: #000080;
+  --accent-hover: #0a0a9e;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.5 -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+}
+
+.topbar {
+  padding: 20px 24px 8px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+.topbar h1 { margin: 0; font-size: 22px; }
+.topbar .sub { margin: 4px 0 0; color: var(--muted); }
+
+main {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 12px 24px 48px;
+}
+
+.input-card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 16px;
+}
+
+.actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+button {
+  font: inherit;
+  padding: 9px 16px;
+  border-radius: 7px;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--text);
+  cursor: pointer;
+}
+button:hover:not(:disabled) { border-color: #9aa3ad; }
+button:disabled { opacity: .5; cursor: default; }
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+button.primary:hover { background: var(--accent-hover); }
+button.ghost { background: transparent; }
+
+details { margin-top: 12px; }
+summary { cursor: pointer; color: var(--muted); user-select: none; }
+textarea {
+  width: 100%;
+  min-height: 180px;
+  margin-top: 8px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  font: 13px/1.45 ui-monospace, Consolas, monospace;
+  resize: vertical;
+}
+
+.status { margin-top: 10px; color: var(--muted); min-height: 1.5em; }
+.status.error { color: #b3261e; }
+
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 4px; font-size: 13px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend i { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+
+.result {
+  margin-top: 16px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 20px;
+  overflow-x: auto;
+}
+
+.pending { color: #8a8f96 !important; font-style: italic; }
+
+@media (max-width: 700px) {
+  .topbar, main { padding-left: 16px; padding-right: 16px; }
+  .result { padding: 12px; }
+}

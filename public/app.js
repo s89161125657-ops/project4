@@ -1,0 +1,351 @@
+(function () {
+  'use strict';
+
+  const { parseThread, formatDateRu } = window.MailParser;
+  const { translateText, isMostlyRussian } = window.TranslateCore;
+
+  const HEADER_GREEN = '#006400';
+  const NAVY = '#000080';
+  const UNKNOWN_COLOR = '#616161';
+  // Фиксированные цвета для конкретных адресов
+  const FIXED_COLORS = { 'zsa@inpren.ru': NAVY };
+  // Палитра для остальных отправителей (без тёмно-синего и тёмно-зелёного)
+  const PALETTE = ['#b71c1c', '#6a1b9a', '#e65100', '#00838f', '#ad1457', '#4e342e',
+    '#827717', '#0277bd', '#37474f', '#9e6a00', '#4527a0', '#c62828'];
+  const COLORS_KEY = 'mailThread.senderColors.v1';
+
+  const BANNER_LINES = [
+    'Ниже изложен перевод переписки для коллег из Haier Biomedical:',
+    'Translation of the above text, made using Google Translate (only for information for colleagues from Haier Biomedical):'
+  ];
+
+  const $ = (id) => document.getElementById(id);
+  const els = {
+    paste: $('pasteBtn'), process: $('processBtn'), copy: $('copyBtn'), clear: $('clearBtn'),
+    sample: $('sampleBtn'), source: $('source'), sourceBox: $('sourceBox'),
+    status: $('status'), legend: $('legend'), result: $('result')
+  };
+
+  let runId = 0;
+  let current = null; // { messages, translations }
+  let configPromise = null;
+
+  // ---------- Цвета отправителей (постоянные между сессиями) ----------
+  function loadColors() {
+    try { return JSON.parse(localStorage.getItem(COLORS_KEY)) || {}; } catch { return {}; }
+  }
+  function saveColors(map) {
+    try { localStorage.setItem(COLORS_KEY, JSON.stringify(map)); } catch { /* недоступно */ }
+  }
+  function hashIndex(s, n) {
+    let h = 0;
+    for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+    return h % n;
+  }
+  function senderKey(msg) {
+    return msg.email || (msg.name ? 'name:' + msg.name.toLowerCase() : '');
+  }
+  function colorFor(msg, map) {
+    const key = senderKey(msg);
+    if (!key) return UNKNOWN_COLOR;
+    if (FIXED_COLORS[key]) return FIXED_COLORS[key];
+    if (map[key] && PALETTE.includes(map[key])) return map[key];
+    const used = new Set(Object.values(map));
+    let color = PALETTE.find((c) => !used.has(c));
+    if (!color) color = PALETTE[hashIndex(key, PALETTE.length)];
+    map[key] = color;
+    return color;
+  }
+
+  // ---------- Перевод ----------
+  function getConfig() {
+    if (!configPromise) {
+      configPromise = fetch('api/config').then((r) => r.json()).catch(() => ({ serverKey: false }));
+    }
+    return configPromise;
+  }
+
+  async function translateViaServer(texts) {
+    const res = await fetch('api/translate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ texts, target: 'ru' })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Ошибка сервера ' + res.status);
+    return data.translations;
+  }
+
+  async function translateInBrowser(texts) {
+    const fetchJson = async (url) => {
+      const r = await fetch(url);
+      if (!r.ok) throw new Error('Google Translate ответил ' + r.status);
+      return r.json();
+    };
+    const out = [];
+    for (const t of texts) out.push(await translateText(t, 'ru', fetchJson));
+    return out;
+  }
+
+  async function translateAll(texts) {
+    if (!texts.length) return [];
+    const cfg = await getConfig();
+    if (cfg.serverKey) return translateViaServer(texts);
+    try {
+      return await translateInBrowser(texts);
+    } catch (e) {
+      return translateViaServer(texts);
+    }
+  }
+
+  // ---------- Отрисовка ----------
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  function headerHtml(msg, dateText, isRu) {
+    if (msg.unknown) {
+      return '<i>' + (isRu ? 'Отправитель не определён' : 'Sender not specified') + '</i>';
+    }
+    const parts = [];
+    const who = msg.name || msg.email || (isRu ? 'Отправитель не определён' : 'Unknown sender');
+    let line = '<b>' + esc(who) + '</b>';
+    if (msg.email && msg.name) line += ' (' + esc(msg.email) + ')';
+    parts.push(line);
+    if (dateText) parts.push(esc(dateText));
+    return parts.join(', ');
+  }
+
+  function cellHtml(color, header, bodyHtml, extraStyle) {
+    return '<td style="vertical-align:top;width:50%;padding:10px 14px 14px;' +
+      'border-left:4px solid ' + color + ';color:' + color + ';word-wrap:break-word;overflow-wrap:anywhere;' +
+      (extraStyle || '') + '">' +
+      '<div style="margin:0 0 6px;font-size:14px;">' + header + '</div>' +
+      '<div style="font-size:14px;">' + bodyHtml + '</div></td>';
+  }
+
+  function linesHtml(lines) {
+    return lines.map(esc).join('<br>');
+  }
+
+  function buildHtml(messages, translations, colorMap) {
+    const rows = messages.map((msg, i) => {
+      const color = colorFor(msg, colorMap);
+      const tr = translations ? translations[i] : null;
+      const leftHeader = headerHtml(msg, msg.dateRaw || formatDateRu(msg.date), false);
+      const ruDate = msg.date ? formatDateRu(msg.date) : (tr && tr.date) || msg.dateRaw;
+      const rightHeader = headerHtml(msg, ruDate, true);
+      let rightBody;
+      if (!tr) rightBody = '<span class="pending">Перевод…</span>';
+      else if (tr.error) rightBody = '<span style="color:#b3261e">' + esc(tr.error) + '</span>';
+      else rightBody = linesHtml(tr.lines);
+      const sep = i > 0 ? 'border-top:1px solid #e3e6ea;' : '';
+      return '<tr>' +
+        cellHtml(color, leftHeader, linesHtml(msg.lines), sep) +
+        cellHtml(color, rightHeader, rightBody, sep + 'border-left-width:4px;') +
+        '</tr>';
+    }).join('');
+
+    return '<div style="font-family:Calibri,Arial,Helvetica,sans-serif;font-size:14px;line-height:1.45;color:#1c1e21;">' +
+      '<p style="color:' + HEADER_GREEN + ';font-weight:bold;margin:0 0 14px;font-size:14px;">' +
+      BANNER_LINES.map(esc).join('<br>') + '</p>' +
+      '<table cellspacing="0" cellpadding="0" style="border-collapse:collapse;width:100%;min-width:640px;table-layout:fixed;">' +
+      '<colgroup><col style="width:50%"><col style="width:50%"></colgroup>' +
+      '<tbody>' + rows + '</tbody></table></div>';
+  }
+
+  function renderLegend(messages, colorMap) {
+    const seen = new Map();
+    for (const msg of messages) {
+      const key = senderKey(msg) || '__unknown';
+      if (!seen.has(key)) seen.set(key, { msg, count: 0 });
+      seen.get(key).count++;
+    }
+    els.legend.innerHTML = [...seen.values()].map(({ msg, count }) => {
+      const label = msg.unknown || !senderKey(msg) ? 'Отправитель не определён'
+        : (msg.name ? msg.name + (msg.email ? ' (' + msg.email + ')' : '') : msg.email);
+      return '<span><i style="background:' + colorFor(msg, colorMap) + '"></i>' + esc(label) +
+        ' — ' + count + '</span>';
+    }).join('');
+  }
+
+  function render() {
+    if (!current) return;
+    const colorMap = loadColors();
+    els.result.innerHTML = buildHtml(current.messages, current.translations, colorMap);
+    renderLegend(current.messages, colorMap);
+    saveColors(colorMap);
+    els.result.hidden = false;
+  }
+
+  function setStatus(text, isError) {
+    els.status.textContent = text || '';
+    els.status.classList.toggle('error', Boolean(isError));
+  }
+
+  // ---------- Основной сценарий ----------
+  async function processText() {
+    const text = els.source.value;
+    const id = ++runId;
+    if (!text.trim()) {
+      current = null;
+      els.result.hidden = true;
+      els.legend.innerHTML = '';
+      els.copy.disabled = true;
+      setStatus('Нет текста для обработки.', true);
+      return;
+    }
+    const messages = parseThread(text).filter((m) => m.lines.length || !m.unknown);
+    if (!messages.length) {
+      setStatus('Не удалось найти письма в тексте.', true);
+      return;
+    }
+    current = { messages, translations: null };
+    els.copy.disabled = false;
+    const senders = new Set(messages.map((m) => senderKey(m) || '?')).size;
+    const summary = 'Писем: ' + messages.length + ', отправителей: ' + senders + '.';
+    setStatus(summary + ' Перевожу…');
+    render();
+
+    // Собираем тексты для перевода (русские тексты не переводим)
+    const texts = [];
+    const jobs = messages.map((msg) => {
+      const job = { body: -1, date: -1 };
+      const body = msg.lines.join('\n');
+      if (body && !isMostlyRussian(body)) job.body = texts.push(body) - 1;
+      if (!msg.date && msg.dateRaw && !isMostlyRussian(msg.dateRaw)) job.date = texts.push(msg.dateRaw) - 1;
+      return job;
+    });
+
+    try {
+      const out = await translateAll(texts);
+      if (id !== runId) return;
+      current.translations = messages.map((msg, i) => {
+        const job = jobs[i];
+        const lines = job.body >= 0
+          ? out[job.body].split('\n').map((l) => l.trim()).filter(Boolean)
+          : msg.lines;
+        return { lines, date: job.date >= 0 ? out[job.date].trim() : '' };
+      });
+      setStatus(summary + ' Перевод готов.');
+    } catch (e) {
+      if (id !== runId) return;
+      current.translations = messages.map(() => ({ error: 'Перевод недоступен: ' + e.message }));
+      setStatus(summary + ' Ошибка перевода: ' + e.message, true);
+    }
+    render();
+  }
+
+  async function pasteFromClipboard() {
+    try {
+      if (!navigator.clipboard || !navigator.clipboard.readText) throw new Error('unsupported');
+      const text = await navigator.clipboard.readText();
+      if (!text.trim()) {
+        setStatus('Буфер обмена пуст.', true);
+        return;
+      }
+      els.source.value = text;
+      processText();
+    } catch (e) {
+      els.sourceBox.open = true;
+      els.source.focus();
+      setStatus('Браузер не дал доступ к буферу обмена. Вставьте текст в поле «Исходный текст» сочетанием Ctrl+V.', true);
+    }
+  }
+
+  function plainText() {
+    const out = [BANNER_LINES.join('\n'), ''];
+    current.messages.forEach((msg, i) => {
+      const tr = current.translations && current.translations[i];
+      const head = (d) => (msg.name || msg.email || 'Отправитель не определён') +
+        (msg.name && msg.email ? ' (' + msg.email + ')' : '') + (d ? ', ' + d : '');
+      out.push(head(msg.dateRaw), ...msg.lines, '');
+      if (tr && tr.lines) out.push(head(msg.date ? formatDateRu(msg.date) : tr.date || msg.dateRaw), ...tr.lines, '');
+    });
+    return out.join('\n');
+  }
+
+  async function copyResult() {
+    if (!current) return;
+    const html = buildHtml(current.messages, current.translations, loadColors());
+    const text = plainText();
+    try {
+      if (window.ClipboardItem && navigator.clipboard.write) {
+        await navigator.clipboard.write([new ClipboardItem({
+          'text/html': new Blob([html], { type: 'text/html' }),
+          'text/plain': new Blob([text], { type: 'text/plain' })
+        })]);
+      } else {
+        throw new Error('fallback');
+      }
+    } catch {
+      // Запасной вариант: выделяем результат и копируем через execCommand
+      const range = document.createRange();
+      range.selectNodeContents(els.result);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+      const ok = document.execCommand('copy');
+      sel.removeAllRanges();
+      if (!ok) { setStatus('Не удалось скопировать. Выделите результат и нажмите Ctrl+C.', true); return; }
+    }
+    setStatus('Результат скопирован — его можно вставить в письмо с сохранением цветов.');
+  }
+
+  const SAMPLE = [
+    'From: Li Wei <liwei@haiermed.com>',
+    'Sent: Tuesday, September 23, 2025 9:30 AM',
+    'To: Sergey Zaytsev <zsa@inpren.ru>',
+    'Subject: RE: Freezer DW-86L728J delivery',
+    '',
+    'Dear Sergey,',
+    '',
+    'Thank you for the quick reply. We will ship the freezer next Tuesday.',
+    '',
+    'Best regards,',
+    'Li Wei',
+    '',
+    'From: Sergey Zaytsev <zsa@inpren.ru>',
+    'Sent: Monday, September 22, 2025 10:15 AM',
+    'To: Li Wei <liwei@haiermed.com>',
+    'Subject: RE: Freezer DW-86L728J delivery',
+    '',
+    'Dear Li Wei,',
+    '',
+    '',
+    'Could you please confirm the shipping date?',
+    'We need the documents for customs clearance.',
+    '',
+    'Best regards,',
+    'Sergey',
+    '',
+    'From: Li Wei <liwei@haiermed.com>',
+    'Sent: Friday, September 19, 2025 4:02 PM',
+    'To: Sergey Zaytsev <zsa@inpren.ru>',
+    'Subject: Freezer DW-86L728J delivery',
+    '',
+    'Dear Sergey,',
+    'The freezer is ready. The invoice is attached.',
+    'Li Wei'
+  ].join('\n');
+
+  els.paste.addEventListener('click', pasteFromClipboard);
+  els.process.addEventListener('click', processText);
+  els.copy.addEventListener('click', copyResult);
+  els.clear.addEventListener('click', () => {
+    runId++;
+    current = null;
+    els.source.value = '';
+    els.result.hidden = true;
+    els.result.innerHTML = '';
+    els.legend.innerHTML = '';
+    els.copy.disabled = true;
+    setStatus('');
+  });
+  els.sample.addEventListener('click', () => {
+    els.source.value = SAMPLE;
+    els.sourceBox.open = true;
+    processText();
+  });
+  els.source.addEventListener('paste', () => setTimeout(processText, 0));
+})();

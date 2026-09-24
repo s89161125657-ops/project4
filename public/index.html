@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Переписка с переводом</title>
+  <meta name="description" content="Разбор e-mail переписки из буфера обмена и параллельный перевод на русский язык">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <h1>Переписка с переводом</h1>
+    <p class="sub">Скопируйте цепочку писем (Ctrl+A, Ctrl+C в почтовом клиенте) и нажмите кнопку ниже.</p>
+  </header>
+
+  <main>
+    <section class="input-card">
+      <div class="actions">
+        <button id="pasteBtn" class="primary" type="button">Вставить из буфера обмена</button>
+        <button id="processBtn" type="button">Обработать</button>
+        <button id="copyBtn" type="button" disabled>Копировать результат</button>
+        <button id="clearBtn" type="button" class="ghost">Очистить</button>
+        <button id="sampleBtn" type="button" class="ghost">Пример</button>
+      </div>
+      <details id="sourceBox">
+        <summary>Исходный текст</summary>
+        <textarea id="source" spellcheck="false" placeholder="Сюда можно вставить текст переписки вручную (Ctrl+V)…"></textarea>
+      </details>
+      <div id="status" class="status" role="status" aria-live="polite"></div>
+      <div id="legend" class="legend"></div>
+    </section>
+
+    <section id="result" class="result" hidden></section>
+  </main>
+
+  <script src="parser.js"></script>
+  <script src="translate-core.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
