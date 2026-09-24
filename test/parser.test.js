@@ -458,13 +458,14 @@ test('images stay in the text; logo in signature goes with the signature', () =>
 
 test('elapsed time between messages', () => {
   const d = (y, m, dd, hh, mm) => ({ y, m, d: dd, hh, mm });
-  assert.deepEqual(formatElapsed(d(2025, 9, 22, 10, 15), d(2025, 9, 19, 16, 2), 180), { ru: '2 дня 18 часов 13 минут', en: '2 days 18 hours 13 minutes' });
-  assert.deepEqual(formatElapsed(d(2025, 9, 22, 9, 14), d(2025, 9, 22, 10, 15)), { ru: '1 час 1 минута', en: '1 hour 1 minute' });
-  assert.deepEqual(formatElapsed(d(2025, 9, 22, 10, 0), d(2025, 9, 22, 10, 25)), { ru: '0 часов 25 минут', en: '0 hours 25 minutes' });
-  assert.deepEqual(formatElapsed(d(2025, 10, 23, 10, 0), d(2025, 9, 22, 8, 0)).ru, '31 день 2 часа 0 минут');
+  const fe = (...args) => { const r = formatElapsed(...args); return r && { ru: r.ru, en: r.en }; };
+  assert.deepEqual(fe(d(2025, 9, 22, 10, 15), d(2025, 9, 19, 16, 2), 180), { ru: '2 дня 18 часов 13 минут', en: '2 days 18 hours 13 minutes' });
+  assert.deepEqual(fe(d(2025, 9, 22, 9, 14), d(2025, 9, 22, 10, 15)), { ru: '1 час 1 минута', en: '1 hour 1 minute' });
+  assert.deepEqual(fe(d(2025, 9, 22, 10, 0), d(2025, 9, 22, 10, 25)), { ru: '0 часов 25 минут', en: '0 hours 25 minutes' });
+  assert.deepEqual(fe(d(2025, 10, 23, 10, 0), d(2025, 9, 22, 8, 0)).ru, '31 день 2 часа 0 минут');
   assert.equal(formatElapsed(d(2025, 9, 22, null, null), d(2025, 9, 22, 10, 0)), null);
   // Пекинское время (UTC+8) против московского (UTC+3): 17:30 в Пекине = 12:30 в Москве
-  assert.deepEqual(formatElapsed({ ...d(2026, 9, 24, 17, 30), tz: 480 }, d(2026, 9, 24, 11, 46), 180), { ru: '0 часов 44 минуты', en: '0 hours 44 minutes' });
+  assert.deepEqual(fe({ ...d(2026, 9, 24, 17, 30), tz: 480 }, d(2026, 9, 24, 11, 46), 180), { ru: '0 часов 44 минуты', en: '0 hours 44 minutes' });
 });
 
 test('board -> плата; images are protected from translation', () => {
@@ -531,4 +532,24 @@ test('image cid is not mistaken for a signature e-mail; stacked multilingual clo
   ]), ['The voltage is 220V.']);
   assert.deepEqual(parseSender('Bao Haiping 包海平 (FH) <haiping.bao@haierbiomedical.com>'),
     { name: 'Bao Haiping 包海平', email: 'haiping.bao@haierbiomedical.com' });
+});
+
+test('"including night" mark for the time between messages', () => {
+  const { elapsedBetween, includesNight } = require('../public/parser');
+  const H = 3600000;
+  const day = Date.UTC(2026, 8, 24);
+  // Москва UTC+3: 20:00 -> 22:30 — без ночи; 22:00 -> 08:00 — с ночью; 01:00 -> 03:00 — ночь
+  assert.equal(includesNight(day + 17 * H, day + 19.5 * H, 180), false);
+  assert.equal(includesNight(day + 19 * H, day + 29 * H, 180), true);
+  assert.equal(includesNight(day - 2 * H, day, 180), true);
+  assert.equal(includesNight(day + 6 * H, day + 12 * H, 180), false); // 09:00 -> 15:00
+  const msg = (email, name, y, m, d, hh, mm, tz) => ({ email, name, date: { y, m, d, hh, mm, tz } });
+  // Ответ из Китая: письмо в 18:00 по Москве, ответ в 09:30 по Пекину на следующий день (04:30 МСК)
+  const g = elapsedBetween(msg('cui@haier.com', 'Cui', 2026, 9, 25, 9, 30, 480), msg('zsa@inpren.ru', 'Сергей', 2026, 9, 24, 18, 0), 180);
+  assert.equal(g.ru, '10 часов 30 минут');
+  assert.equal(g.night, true);
+  // Ответ в тот же день днём — без ночи
+  const g2 = elapsedBetween(msg('zsa@inpren.ru', 'Сергей', 2026, 9, 24, 15, 0), msg('cui@haier.com', 'Cui', 2026, 9, 24, 16, 0, 480), 180);
+  assert.equal(g2.ru, '4 часа 0 минут');
+  assert.equal(g2.night, false);
 });

@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  const { parseThread, formatDateRu, formatElapsed, IMAGE_MARKER_SRC } = window.MailParser;
+  const { parseThread, formatDateRu, elapsedBetween, IMAGE_MARKER_SRC } = window.MailParser;
   const { translateText, isMostlyRussian, applyGlossary, collectNames, protectNames, restoreNames,
     protectImages, restoreImages } = window.TranslateCore;
 
@@ -194,11 +194,12 @@
 
   // ---------- Время между письмами ----------
   function gapRowHtml(a, b) {
-    const gap = formatElapsed(a.date, b.date);
+    const gap = elapsedBetween(a, b);
     if (!gap) return '';
     return '<tr><td colspan="2" style="padding:6px 14px;background:#f1f3f5;color:#495057;text-align:center;' +
       'font-size:13px;border-top:1px solid #e3e6ea;">' +
-      '&#9201; Между письмами прошло: <b>' + esc(gap.ru) + '</b> &nbsp;/&nbsp; Time between messages: <b>' + esc(gap.en) + '</b>' +
+      '&#9201; Time between messages: <b>' + esc(gap.en) + '</b>' + (gap.night ? ' (including night)' : '') +
+      ' &nbsp;/&nbsp; Между письмами прошло: <b>' + esc(gap.ru) + '</b>' + (gap.night ? ' (включая ночь)' : '') +
       '</td></tr>';
   }
 
@@ -388,8 +389,11 @@
     const out = [BANNER_LINES.join('\n'), ''];
     current.messages.forEach((msg, i) => {
       const tr = current.translations && current.translations[i];
-      const gap = i > 0 && formatElapsed(current.messages[i - 1].date, msg.date);
-      if (gap) out.push('--- Между письмами прошло: ' + gap.ru + ' / Time between messages: ' + gap.en + ' ---', '');
+      const gap = i > 0 && elapsedBetween(current.messages[i - 1], msg);
+      if (gap) {
+        out.push('--- Time between messages: ' + gap.en + (gap.night ? ' (including night)' : '') +
+          ' / Между письмами прошло: ' + gap.ru + (gap.night ? ' (включая ночь)' : '') + ' ---', '');
+      }
       const head = (d, lang) => ((lang && msg.name ? applyGlossary(msg.name, lang) : msg.name) || msg.email || 'Отправитель не определён') +
         (d ? ', ' + d : '');
       out.push(head(msg.dateRaw), ...msg.lines, '');

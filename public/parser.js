@@ -620,7 +620,7 @@
    * Возвращает { ru, en } ("2 дня 3 часа 15 минут" / "2 days 3 hours 15 minutes");
    * меньше суток — только часы и минуты. null, если у даты нет времени.
    */
-  function formatElapsed(a, b, localTz) {
+  function formatElapsed(a, b, localTz, nightTz) {
     if (!a || !b || a.hh === null || a.hh === undefined || b.hh === null || b.hh === undefined) return null;
     // tz — смещение от UTC в минутах; если не известно — часовой пояс компьютера
     const local = localTz !== undefined ? localTz : -new Date().getTimezoneOffset();
@@ -637,7 +637,46 @@
       ru.unshift(days + ' ' + plural(days, 'день', 'дня', 'дней'));
       eng.unshift(en(days, 'day'));
     }
-    return { ru: ru.join(' '), en: eng.join(' ') };
+    const out = { ru: ru.join(' '), en: eng.join(' '), night: false };
+    if (nightTz !== undefined || local !== undefined) {
+      out.night = includesNight(Math.min(t(a), t(b)), Math.max(t(a), t(b)), nightTz !== undefined ? nightTz : local);
+    }
+    return out;
+  }
+
+  // Ночь — с 23:00 до 7:00 по местному времени (tz — смещение от UTC в минутах)
+  const NIGHT_START = 23;
+  const NIGHT_END = 7;
+
+  function includesNight(startMs, endMs, tz) {
+    if (endMs - startMs >= 86400000) return true;
+    const shift = tz * 60000;
+    const s0 = startMs + shift;
+    const e0 = endMs + shift;
+    const day0 = Math.floor(s0 / 86400000) * 86400000;
+    // Проверяем ночи, которые начинаются накануне, в день начала и на следующий день
+    for (let d = day0 - 86400000; d <= e0; d += 86400000) {
+      const ws = d + NIGHT_START * 3600000;
+      const we = d + (24 + NIGHT_END) * 3600000;
+      if (s0 < we && e0 > ws) return true;
+    }
+    return false;
+  }
+
+  // Часовой пояс отправителя (для ночи): коллеги в Китае — UTC+8, остальные — время компьютера
+  function senderTz(msg) {
+    if (/haier|\.cn$/i.test(msg.email || '') || /\p{Script=Han}/u.test(msg.name || '')) return 480;
+    return undefined;
+  }
+
+  /** Время между двумя письмами с отметкой «включая ночь» (ночь — у того, кто отвечал позже) */
+  function elapsedBetween(m1, m2, localTz) {
+    if (!m1.date || !m2.date) return null;
+    const local = localTz !== undefined ? localTz : -new Date().getTimezoneOffset();
+    const t = (x) => Date.UTC(x.y, x.m - 1, x.d, x.hh || 0, x.mm || 0) - (x.tz !== undefined ? x.tz : local) * 60000;
+    const later = t(m1.date) >= t(m2.date) ? m1 : m2;
+    const tz = senderTz(later);
+    return formatElapsed(m1.date, m2.date, local, tz !== undefined ? tz : local);
   }
 
   function formatDateRu(dt) {
@@ -647,5 +686,5 @@
     return s;
   }
 
-  return { IMAGE_MARKER_SRC, formatElapsed, parseThread, stripExcludedPhrases, stripSignature, stripDisclaimers, parseRecipients, parseDate, parseSender, formatDateRu, normalize };
+  return { IMAGE_MARKER_SRC, formatElapsed, elapsedBetween, includesNight, parseThread, stripExcludedPhrases, stripSignature, stripDisclaimers, parseRecipients, parseDate, parseSender, formatDateRu, normalize };
 });
