@@ -121,17 +121,19 @@
       return readChain(e.start).subarray(0, e.size);
     };
 
-    // Обход дерева детей корня (красно-чёрное дерево через left/right)
+    // Обход дерева (красно-чёрное дерево через left/right, вложенные хранилища через child).
+    // Потоки корня — по имени, потоки хранилищ — "хранилище/поток" (вложения письма).
     const result = new Map();
-    const stack = [rootEntry.child];
+    const stack = [{ id: rootEntry.child, prefix: '', depth: 0 }];
     const visited = new Set();
     while (stack.length) {
-      const id = stack.pop();
+      const { id, prefix, depth } = stack.pop();
       if (id === FREE_SECT || id >= entries.length || visited.has(id)) continue;
       visited.add(id);
       const e = entries[id];
-      stack.push(e.left, e.right);
-      if (e.type === 2) result.set(e.name, readStream(e));
+      stack.push({ id: e.left, prefix, depth }, { id: e.right, prefix, depth });
+      if (e.type === 2) result.set(prefix + e.name, readStream(e));
+      else if (e.type === 1 && depth < 1) stack.push({ id: e.child, prefix: prefix + e.name + '/', depth: depth + 1 });
     }
     return result;
   }
@@ -207,7 +209,26 @@
       const html = htmlBin ? decodeBytes(htmlBin, htmlCharset(htmlBin) || ansiCharset) : str('1013');
       if (html) body = htmlToText(html);
     }
+    // Картинки из вложений (для меток [cid:...] в тексте)
+    const images = [];
+    const attachDirs = new Set([...streams.keys()].filter((k) => k.startsWith('__attach_version1.0_#')).map((k) => k.split('/')[0]));
+    for (const dir of attachDirs) {
+      const a = (id) => {
+        const u = streams.get(dir + '/__substg1.0_' + id + '001F');
+        if (u) return decodeUtf16(u);
+        const b = streams.get(dir + '/__substg1.0_' + id + '001E');
+        return b ? decodeBytes(b, ansiCharset) : '';
+      };
+      const data = streams.get(dir + '/__substg1.0_37010102');
+      if (!data) continue;
+      const name = a('3707') || a('3704');
+      const mime = a('370E') || mimeFromName(name);
+      if (!/^image\//i.test(mime)) continue;
+      images.push({ cid: a('3712'), name, mime, bytes: data });
+    }
+
     return {
+      images,
       subject: str('0037'),
       fromName: str('0C1A') || str('0042'),
       fromEmail,
@@ -216,6 +237,12 @@
       date,
       body
     };
+  }
+
+  function mimeFromName(name) {
+    const ext = (/\.(\w+)$/.exec(name || '') || [])[1];
+    const map = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', bmp: 'image/bmp', webp: 'image/webp', tif: 'image/tiff', tiff: 'image/tiff', emz: '', wmz: '' };
+    return (ext && map[ext.toLowerCase()]) || '';
   }
 
   function htmlCharset(bytes) {
@@ -231,6 +258,13 @@
     return String(html)
       .replace(/<!--[\s\S]*?-->/g, '')
       .replace(/<(script|style|head|title|xml)\b[\s\S]*?<\/\1>/gi, '')
+      .replace(/<img\b[^>]*>/gi, (tag) => {
+        const src = (/\bsrc\s*=\s*["']?([^"'\s>]+)/i.exec(tag) || [])[1] || '';
+        if (/^cid:/i.test(src)) return '\n[' + src + ']\n';
+        if (/^(?:https?:|data:image\/)/i.test(src)) return '\n[img:' + src + ']\n';
+        const alt = (/\balt\s*=\s*["']([^"']*)/i.exec(tag) || [])[1];
+        return alt ? '\n[image: ' + alt + ']\n' : '';
+      })
       .replace(/<br\s*\/?>/gi, '\n')
       .replace(/<\/(p|div|tr|li|h[1-6]|table|blockquote)>/gi, '\n')
       .replace(/<(p|div|tr|li|h[1-6]|table|blockquote)\b[^>]*>/gi, '\n')
@@ -319,9 +353,19 @@
       }
       return found;
     }
-    if (/attachment/i.test(h['content-disposition'] || '')) return found;
     const enc = (h['content-transfer-encoding'] || '').toLowerCase();
-    const bytes = enc === 'base64' ? base64ToBytes(body) : enc === 'quoted-printable' ? qpToBytes(body) : latin1ToBytes(body);
+    const decode = () => enc === 'base64' ? base64ToBytes(body) : enc === 'quoted-printable' ? qpToBytes(body) : latin1ToBytes(body);
+    if (/^image\//.test(ctype)) {
+      (found.images = found.images || []).push({
+        cid: (h['content-id'] || '').replace(/^\s*<|>\s*$/g, ''),
+        name: decodeWords(param(h['content-disposition'], 'filename') || param(h['content-type'], 'name')),
+        mime: ctype.split(';')[0].trim(),
+        bytes: decode()
+      });
+      return found;
+    }
+    if (/attachment/i.test(h['content-disposition'] || '')) return found;
+    const bytes = decode();
     const text = decodeBytes(bytes, param(h['content-type'], 'charset') || 'utf-8');
     if (/^text\/plain/.test(ctype) && found.plain === undefined) found.plain = text;
     else if (/^text\/html/.test(ctype) && found.html === undefined) found.html = text;
@@ -342,6 +386,7 @@
     const fromName = from.replace(/<[^>]*>/, '').replace(/["']/g, '').replace(em ? em[0] : '\u0000', '').trim();
     const date = h.date ? new Date(h.date.replace(/\s*\([^)]*\)\s*$/, '')) : null;
     return {
+      images: found.images || [],
       subject: hdr('subject'),
       fromName,
       fromEmail: em ? em[0] : '',
@@ -375,15 +420,22 @@
     return lines.join('\n');
   }
 
-  /** Разбор перетащенного файла письма. name — имя файла, bytes — Uint8Array. */
-  function fileToText(name, bytes) {
-    if (isCfb(bytes)) return mailToText(parseMsg(bytes));
-    if (/\.(eml|mht|mhtml)$/i.test(name) || /^(?:[\w-]+:.*\r?\n)+/.test(bytesToLatin1(bytes.subarray(0, 2000)))) {
-      return mailToText(parseEml(bytes));
-    }
+  /**
+   * Разбор перетащенного файла письма. name — имя файла, bytes — Uint8Array.
+   * Возвращает { text, images: [{cid, name, mime, bytes}] }.
+   */
+  function fileToMail(name, bytes) {
+    let mail = null;
+    if (isCfb(bytes)) mail = parseMsg(bytes);
+    else if (/\.(eml|mht|mhtml)$/i.test(name) || /^(?:[\w-]+:.*\r?\n)+/.test(bytesToLatin1(bytes.subarray(0, 2000)))) mail = parseEml(bytes);
+    if (mail) return { text: mailToText(mail), images: mail.images || [] };
     const text = decodeBytes(bytes, 'utf-8');
-    return /<html|<body|<div|<p[\s>]/i.test(text) ? htmlToText(text) : text;
+    return { text: /<html|<body|<div|<p[\s>]/i.test(text) ? htmlToText(text) : text, images: [] };
   }
 
-  return { fileToText, parseMsg, parseEml, htmlToText, mailToText, readCfbRootStreams };
+  function fileToText(name, bytes) {
+    return fileToMail(name, bytes).text;
+  }
+
+  return { fileToMail, fileToText, parseMsg, parseEml, htmlToText, mailToText, readCfbRootStreams };
 });

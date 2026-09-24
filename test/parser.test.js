@@ -302,7 +302,7 @@ test('Outlook reading pane copy: subject line, sender, To/Cc, date', () => {
   assert.equal(msgs[0].name, 'Cui');
   assert.equal(formatDateRu(msgs[0].date), '22.09.2025 10:15');
   assert.deepEqual(msgs[0].recipients.map((r) => r.name), ['Sergei Zakharov', 'Li Wei']);
-  assert.deepEqual(msgs[0].lines, ['Dear Sergei,', 'The sensor is shipped.']);
+  assert.deepEqual(msgs[0].lines, ['[cid:image001.png@01DC2B]', 'Dear Sergei,', 'The sensor is shipped.']);
   assert.deepEqual(msgs[1].lines, ['Dear Cui,', 'To be honest, we need it urgently.']);
 });
 
@@ -442,4 +442,55 @@ test('.msg file (Outlook) is converted to a thread text', () => {
   assert.deepEqual(msgs[0].lines, ['Dear Sergei,', 'The sensor is shipped.']);
   assert.equal(msgs[1].name, 'Sergei Zakharov');
   assert.deepEqual(msgs[1].lines, ['Dear Cui,', 'Please send the sensor.']);
+});
+
+const { formatElapsed } = require('../public/parser');
+
+test('images stay in the text; logo in signature goes with the signature', () => {
+  const text = [
+    'From: Cui <cui@haier.com>', 'Sent: 22.09.2025 10:00', 'Subject: Photo', '',
+    'Dear Sergei,', 'Please see the photo of the board:', '[cid:image001.png@01DC2B77.5A1B]', 'It is broken.', '',
+    'Best regards', 'Cui', '[cid:image002.png@01DC2B77.5A1B]', 'Service Manager'
+  ].join('\n');
+  assert.deepEqual(parseThread(text)[0].lines,
+    ['Dear Sergei,', 'Please see the photo of the board:', '[cid:image001.png@01DC2B77.5A1B]', 'It is broken.']);
+});
+
+test('elapsed time between messages', () => {
+  const d = (y, m, dd, hh, mm) => ({ y, m, d: dd, hh, mm });
+  assert.deepEqual(formatElapsed(d(2025, 9, 22, 10, 15), d(2025, 9, 19, 16, 2)), { ru: '2 дня 18 часов 13 минут', en: '2 days 18 hours 13 minutes' });
+  assert.deepEqual(formatElapsed(d(2025, 9, 22, 9, 14), d(2025, 9, 22, 10, 15)), { ru: '1 час 1 минута', en: '1 hour 1 minute' });
+  assert.deepEqual(formatElapsed(d(2025, 9, 22, 10, 0), d(2025, 9, 22, 10, 25)), { ru: '0 часов 25 минут', en: '0 hours 25 minutes' });
+  assert.deepEqual(formatElapsed(d(2025, 10, 23, 10, 0), d(2025, 9, 22, 8, 0)).ru, '31 день 2 часа 0 минут');
+  assert.equal(formatElapsed(d(2025, 9, 22, null, null), d(2025, 9, 22, 10, 0)), null);
+});
+
+test('board -> плата; images are protected from translation', () => {
+  assert.equal(applyGlossary('Доска управления сломана, замените доску. Две доски, нет досок.', 'ru'),
+    'Плата управления сломана, замените плату. Две платы, нет плат.');
+  assert.equal(applyGlossary('control board', 'ru'), 'control плата');
+  assert.equal(applyGlossary('Доска', 'en'), 'Доска');
+  const { protectImages, restoreImages } = require('../public/translate-core');
+  const { IMAGE_MARKER_SRC } = require('../public/parser');
+  const p = protectImages('See [cid:image001.png@01D] and [img:https://x.org/a.png]', IMAGE_MARKER_SRC);
+  assert.equal(p.text, 'See QZY0Z and QZY1Z');
+  assert.equal(restoreImages('Смотрите QZY 0 Z и QZY1Z', p.images), 'Смотрите [cid:image001.png@01D] и [img:https://x.org/a.png]');
+});
+
+test('.eml inline image is extracted and referenced by cid', () => {
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  const eml = [
+    'From: Cui <cui@haier.com>', 'Subject: Photo', 'Date: Mon, 22 Sep 2025 10:15:00 +0000',
+    'Content-Type: multipart/related; boundary="r"', '',
+    '--r', 'Content-Type: text/html; charset=utf-8', '',
+    '<p>Dear Sergei,</p><p>See photo:<br><img src="cid:photo1@x" width=100></p>',
+    '--r', 'Content-Type: image/png; name="board.png"', 'Content-ID: <photo1@x>', 'Content-Transfer-Encoding: base64', '',
+    png.toString('base64'), '--r--'
+  ].join('\r\n');
+  const mail = MailFile.fileToMail('a.eml', new Uint8Array(Buffer.from(eml, 'latin1')));
+  assert.equal(mail.images.length, 1);
+  assert.equal(mail.images[0].cid, 'photo1@x');
+  assert.equal(mail.images[0].mime, 'image/png');
+  assert.deepEqual(Buffer.from(mail.images[0].bytes), png);
+  assert.deepEqual(parseThread(mail.text)[0].lines, ['Dear Sergei,', 'See photo:', '[cid:photo1@x]']);
 });

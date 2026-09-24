@@ -63,7 +63,12 @@
     [/(?<![A-Za-z])Zakharov(?![A-Za-z])/g, 'Захаров'],
     // варианты транслитерации Google Translate
     [/(?<![А-Яа-яЁё])Серг(?:еи|ей|ии)\s+Захаров(?![А-Яа-яЁё])/g, 'Сергей Захаров'],
-    [/(?<![А-Яа-яЁё])Закаров(?![А-Яа-яЁё])/g, 'Захаров']
+    [/(?<![А-Яа-яЁё])Закаров(?![А-Яа-яЁё])/g, 'Захаров'],
+    // board -> плата (Google часто переводит как "доска"): все падежи
+    [/(?<![А-Яа-яЁё])([Дд])оск(а|и|е|у|ой|ою|ам|ами|ах)(?![А-Яа-яЁё])/g,
+      (m, d, end) => (d === 'Д' ? 'П' : 'п') + 'лат' + (end === 'и' ? 'ы' : end)],
+    [/(?<![А-Яа-яЁё])([Дд])осок(?![А-Яа-яЁё])/g, (m, d) => (d === 'Д' ? 'П' : 'п') + 'лат'],
+    [/(?<![A-Za-z])(?:PCB\s+)?[Bb]oards?(?![A-Za-z])/g, (m) => (/s$/.test(m) ? 'платы' : 'плата')]
   ];
   // Имена, которые переводятся по словарю, а не остаются как есть
   const TRANSLATED_NAMES = /^(?:sergei|zakharov)$/i;
@@ -108,6 +113,17 @@
     return { text: out, names: used };
   }
 
+  /** Картинки в тексте ([cid:...], [img:...]) заменяются метками и не отправляются в перевод */
+  function protectImages(text, markerSrc) {
+    const images = [];
+    const out = String(text).replace(new RegExp(markerSrc, 'gi'), (m) => 'QZY' + (images.push(m) - 1) + 'Z');
+    return { text: out, images };
+  }
+
+  function restoreImages(text, images) {
+    return String(text).replace(/QZY\s*(\d+)\s*Z/gi, (m, i) => (images[+i] !== undefined ? images[+i] : m));
+  }
+
   function restoreNames(text, names) {
     return String(text).replace(/QZX\s*(\d+)\s*Z/gi, (m, i) => (names[+i] !== undefined ? names[+i] : m));
   }
@@ -149,5 +165,5 @@
     return parts.join('\n');
   }
 
-  return { splitChunks, translateText, applyGlossary, collectNames, protectNames, restoreNames, parseGtx, isMostlyRussian, MAX_CHUNK };
+  return { splitChunks, translateText, applyGlossary, collectNames, protectNames, restoreNames, protectImages, restoreImages, parseGtx, isMostlyRussian, MAX_CHUNK };
 });

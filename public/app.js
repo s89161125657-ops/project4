@@ -1,8 +1,9 @@
 (function () {
   'use strict';
 
-  const { parseThread, formatDateRu } = window.MailParser;
-  const { translateText, isMostlyRussian, applyGlossary, collectNames, protectNames, restoreNames } = window.TranslateCore;
+  const { parseThread, formatDateRu, formatElapsed, IMAGE_MARKER_SRC } = window.MailParser;
+  const { translateText, isMostlyRussian, applyGlossary, collectNames, protectNames, restoreNames,
+    protectImages, restoreImages } = window.TranslateCore;
 
   const HEADER_GREEN = '#006400';
   const NAVY = '#000080';
@@ -21,7 +22,7 @@
 
   const $ = (id) => document.getElementById(id);
   const els = {
-    paste: $('pasteBtn'), process: $('processBtn'), copy: $('copyBtn'), clear: $('clearBtn'),
+    paste: $('pasteBtn'), copy: $('copyBtn'),
     stripSig: $('stripSig'), last2: $('last2Btn'), drop: $('dropZone'), file: $('fileInput'), source: $('source'), sourceBox: $('sourceBox'),
     status: $('status'), legend: $('legend'), result: $('result')
   };
@@ -126,8 +127,79 @@
       '<div style="font-size:14px;">' + bodyHtml + '</div></td>';
   }
 
-  function linesHtml(lines) {
-    return lines.map(esc).join('<br>');
+  // ---------- Картинки ----------
+  // Картинки из перетащенного письма: cid / имя файла -> data: URL
+  const imageStore = new Map();
+  const IMAGE_RE = new RegExp(IMAGE_MARKER_SRC, 'gi');
+  const BROWSER_IMAGE = /^image\/(?:png|jpe?g|gif|bmp|webp|svg\+xml)$/i;
+
+  function bytesToBase64(bytes) {
+    let bin = '';
+    for (let i = 0; i < bytes.length; i += 8192) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 8192));
+    return btoa(bin);
+  }
+
+  function registerImages(images) {
+    for (const img of images) {
+      if (!BROWSER_IMAGE.test(img.mime)) continue;
+      const url = 'data:' + img.mime + ';base64,' + bytesToBase64(img.bytes);
+      if (img.cid) {
+        imageStore.set(img.cid.toLowerCase(), url);
+        imageStore.set(img.cid.split('@')[0].toLowerCase(), url);
+      }
+      if (img.name) imageStore.set(img.name.toLowerCase(), url);
+    }
+  }
+
+  function markerInfo(marker) {
+    let m;
+    if ((m = /^\[cid:([^\]]+)\]$/i.exec(marker))) {
+      const cid = m[1].toLowerCase();
+      return { src: imageStore.get(cid) || imageStore.get(cid.split('@')[0]), name: m[1].split('@')[0] };
+    }
+    if ((m = /^\[img:([^\]]+)\]$/i.exec(marker))) {
+      const src = m[1];
+      return { src: /^(?:https?:|data:image\/)/i.test(src) ? src : '', name: src.split(/[/?#]/).filter(Boolean).pop() || '' };
+    }
+    if ((m = /^\[image:\s*([^\]]*)\]$/i.exec(marker))) return { src: imageStore.get(m[1].trim().toLowerCase()), name: m[1].trim() };
+    if ((m = /^<([^>]+)>$/.exec(marker))) return { src: imageStore.get(m[1].toLowerCase()), name: m[1] };
+    return { src: '', name: marker };
+  }
+
+  function imageHtml(marker, lang) {
+    const info = markerInfo(marker);
+    if (info.src) {
+      return '<img src="' + esc(info.src) + '" alt="' + esc(info.name) + '" style="display:inline-block;vertical-align:bottom;max-width:100%;max-height:420px;margin:4px 0;border:1px solid #e3e6ea;">';
+    }
+    const label = lang === 'ru' ? 'Изображение' : 'Image';
+    return '<span style="color:#6b7280;font-style:italic;">[' + label + (info.name ? ': ' + esc(info.name) : '') + ']</span>';
+  }
+
+  // Строка текста письма: экранируем текст, картинки показываем как картинки
+  function lineHtml(line, lang) {
+    let out = '';
+    let last = 0;
+    IMAGE_RE.lastIndex = 0;
+    let m;
+    while ((m = IMAGE_RE.exec(line))) {
+      out += esc(line.slice(last, m.index)) + imageHtml(m[0], lang);
+      last = m.index + m[0].length;
+    }
+    return out + esc(line.slice(last));
+  }
+
+  function linesHtml(lines, lang) {
+    return lines.map((l) => lineHtml(l, lang)).join('<br>');
+  }
+
+  // ---------- Время между письмами ----------
+  function gapRowHtml(a, b) {
+    const gap = formatElapsed(a.date, b.date);
+    if (!gap) return '';
+    return '<tr><td colspan="2" style="padding:6px 14px;background:#f1f3f5;color:#495057;text-align:center;' +
+      'font-size:13px;border-top:1px solid #e3e6ea;">' +
+      '&#9201; Между письмами прошло: <b>' + esc(gap.ru) + '</b> &nbsp;/&nbsp; Time between messages: <b>' + esc(gap.en) + '</b>' +
+      '</td></tr>';
   }
 
   function buildHtml(messages, translations, colorMap) {
@@ -140,10 +212,10 @@
       let rightBody;
       if (!tr) rightBody = '<span class="pending">Перевод…</span>';
       else if (tr.error) rightBody = '<span style="color:#b3261e">' + esc(tr.error) + '</span>';
-      else rightBody = linesHtml(tr.lines);
+      else rightBody = linesHtml(tr.lines, msg.target);
       const sep = i > 0 ? 'border-top:1px solid #e3e6ea;' : '';
-      return '<tr>' +
-        cellHtml(color, leftHeader, linesHtml(msg.lines), sep) +
+      return (i > 0 ? gapRowHtml(messages[i - 1], msg) : '') + '<tr>' +
+        cellHtml(color, leftHeader, linesHtml(msg.lines, ''), sep) +
         cellHtml(color, rightHeader, rightBody, sep + 'border-left-width:4px;') +
         '</tr>';
     }).join('');
@@ -219,8 +291,8 @@
     const all = parseThread(text, { stripSignatures: els.stripSig.checked }).filter((m) => m.lines.length || !m.unknown);
     const messages = pickLatest(all, onlyLast);
     for (const msg of messages) {
-      const body = msg.lines.join('\n');
-      msg.target = body && isMostlyRussian(body) ? 'en' : 'ru';
+      const body = msg.lines.join('\n').replace(IMAGE_RE, ' ');
+      msg.target = body.trim() && isMostlyRussian(body) ? 'en' : 'ru';
     }
     if (!messages.length) {
       setStatus('Не удалось найти письма в тексте.', true);
@@ -240,12 +312,15 @@
     const names = collectNames(all.flatMap((m) => [m, ...(m.recipients || [])]));
     const queues = { ru: [], en: [] };
     const jobs = messages.map((msg) => {
-      const job = { body: -1, date: null, names: [] };
+      const job = { body: -1, date: null, names: [], images: [] };
       const body = msg.lines.join('\n');
       if (body) {
-        let text = body;
+        // Картинки не отправляем в перевод — заменяем метками
+        const img = protectImages(body, IMAGE_MARKER_SRC);
+        job.images = img.images;
+        let text = img.text;
         if (msg.target === 'ru') {
-          const prot = protectNames(body, names);
+          const prot = protectNames(text, names);
           job.names = prot.names;
           text = prot.text;
         }
@@ -265,7 +340,7 @@
       current.translations = messages.map((msg, i) => {
         const job = jobs[i];
         const lines = job.body >= 0
-          ? restoreNames(out[msg.target][job.body], job.names).split('\n')
+          ? restoreImages(restoreNames(out[msg.target][job.body], job.names), job.images).split('\n')
             .map((l) => applyGlossary(l.trim(), msg.target)).filter(Boolean)
           : [];
         return { lines, date: job.date ? out[job.date.target][job.date.idx].trim() : '' };
@@ -299,6 +374,7 @@
         setStatus('Буфер обмена пуст.', true);
         return;
       }
+      imageStore.clear();
       els.source.value = text;
       processText();
     } catch (e) {
@@ -312,6 +388,8 @@
     const out = [BANNER_LINES.join('\n'), ''];
     current.messages.forEach((msg, i) => {
       const tr = current.translations && current.translations[i];
+      const gap = i > 0 && formatElapsed(current.messages[i - 1].date, msg.date);
+      if (gap) out.push('--- Между письмами прошло: ' + gap.ru + ' / Time between messages: ' + gap.en + ' ---', '');
       const head = (d, lang) => ((lang && msg.name ? applyGlossary(msg.name, lang) : msg.name) || msg.email || 'Отправитель не определён') +
         (d ? ', ' + d : '');
       out.push(head(msg.dateRaw), ...msg.lines, '');
@@ -352,7 +430,9 @@
     const parts = [];
     for (const f of files) {
       const bytes = new Uint8Array(await f.arrayBuffer());
-      parts.push(window.MailFile.fileToText(f.name, bytes));
+      const mail = window.MailFile.fileToMail(f.name, bytes);
+      registerImages(mail.images);
+      parts.push(mail.text);
     }
     return parts.join('\n\n');
   }
@@ -360,6 +440,7 @@
   async function handleDrop(dt) {
     try {
       let text = '';
+      imageStore.clear();
       if (dt.files && dt.files.length) {
         text = await filesToText([...dt.files]);
       } else {
@@ -401,19 +482,8 @@
   });
 
   els.paste.addEventListener('click', pasteFromClipboard);
-  els.process.addEventListener('click', () => { onlyLast = 0; processText(); });
   els.last2.addEventListener('click', translateLastTwo);
   els.copy.addEventListener('click', copyResult);
-  els.clear.addEventListener('click', () => {
-    runId++;
-    current = null;
-    els.source.value = '';
-    els.result.hidden = true;
-    els.result.innerHTML = '';
-    els.legend.innerHTML = '';
-    els.copy.disabled = true;
-    setStatus('');
-  });
   els.stripSig.addEventListener('change', () => { if (els.source.value.trim()) processText(); });
-  els.source.addEventListener('paste', () => setTimeout(() => { onlyLast = 0; processText(); }, 0));
+  els.source.addEventListener('paste', () => setTimeout(() => { onlyLast = 0; imageStore.clear(); processText(); }, 0));
 })();

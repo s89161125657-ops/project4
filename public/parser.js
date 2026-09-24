@@ -66,9 +66,7 @@
     if (!t) return true;
     if (/^[-_=—–~*]{4,}$/.test(t)) return true;
     if (/^[-_=—–~]{2,}.{0,60}?[-_=—–~]{2,}$/.test(t)) return true;
-    // Картинки, "Sent from my iPhone", баннеры о внешней почте
-    if (/^\[(?:cid:|image|картинка|图片)[^\]]*\]$/i.test(t)) return true;
-    if (/^<?image\d*\.(?:png|jpe?g|gif|bmp)>?$/i.test(t)) return true;
+    // "Sent from my iPhone", баннеры о внешней почте (картинки остаются в тексте)
     if (/^(?:sent from my|sent from mail for|get outlook for|отправлено с (?:iphone|ipad|android|моего)|скачайте outlook|发自我的)/i.test(t)) return true;
     if (/^\[?(?:external(?: email| sender)?|внешн(?:ее|ий) (?:письмо|отправитель))\]?\s*[:：]?$/i.test(t)) return true;
     if (/^(?:caution|warning|внимание)\s*[:：]\s*this (?:e-?mail|message) (?:originated|was sent) from outside/i.test(t)) return true;
@@ -295,6 +293,13 @@
     return { name, email };
   }
 
+  // --- Картинки в тексте: [cid:image001.png@01DC...], [img:https://...], [image: logo.png] ---
+  const IMAGE_MARKER_SRC = String.raw`\[(?:cid:[^\]\s]+|img:[^\]\s]+|image:\s*[^\]]*)\]|<image\d+\.(?:png|jpe?g|gif|bmp)>`;
+  const imageOnlyRe = new RegExp('^(?:\\s*(?:' + IMAGE_MARKER_SRC + '))+\\s*$', 'i');
+  function isImageOnly(line) {
+    return imageOnlyRe.test(line);
+  }
+
   // --- Подписи в конце письма ---
   // Строка-прощание, с которой начинается подпись ("Best regards", "С уважением" ...)
   const CLOSING_RE = new RegExp('^(?:' + [
@@ -319,6 +324,7 @@
 
   // Короткая строка из слов с заглавной буквы (имя, должность, отдел) или с контактами
   function isSignatureLike(line) {
+    if (isImageOnly(line)) return true; // логотип в подписи
     if (CONTACT_RE.test(line) || TITLE_RE.test(line)) return true;
     if (line.length > 40 || /[.?!。？！:]\s*$/.test(line)) return false;
     const words = line.split(/\s+/);
@@ -590,6 +596,36 @@
 
   const pad = (n) => String(n).padStart(2, '0');
 
+  function plural(n, one, few, many) {
+    const n10 = n % 10, n100 = n % 100;
+    if (n10 === 1 && n100 !== 11) return one;
+    if (n10 >= 2 && n10 <= 4 && (n100 < 10 || n100 >= 20)) return few;
+    return many;
+  }
+
+  /**
+   * Сколько времени прошло между двумя датами {y,m,d,hh,mm}.
+   * Возвращает { ru, en } ("2 дня 3 часа 15 минут" / "2 days 3 hours 15 minutes");
+   * меньше суток — только часы и минуты. null, если у даты нет времени.
+   */
+  function formatElapsed(a, b) {
+    if (!a || !b || a.hh === null || a.hh === undefined || b.hh === null || b.hh === undefined) return null;
+    const t = (x) => Date.UTC(x.y, x.m - 1, x.d, x.hh, x.mm);
+    let min = Math.round(Math.abs(t(a) - t(b)) / 60000);
+    const days = Math.floor(min / 1440);
+    min -= days * 1440;
+    const hours = Math.floor(min / 60);
+    const mins = min - hours * 60;
+    const en = (n, w) => n + ' ' + w + (n === 1 ? '' : 's');
+    const ru = [hours + ' ' + plural(hours, 'час', 'часа', 'часов'), mins + ' ' + plural(mins, 'минута', 'минуты', 'минут')];
+    const eng = [en(hours, 'hour'), en(mins, 'minute')];
+    if (days > 0) {
+      ru.unshift(days + ' ' + plural(days, 'день', 'дня', 'дней'));
+      eng.unshift(en(days, 'day'));
+    }
+    return { ru: ru.join(' '), en: eng.join(' ') };
+  }
+
   function formatDateRu(dt) {
     if (!dt) return '';
     let s = pad(dt.d) + '.' + pad(dt.m) + '.' + dt.y;
@@ -597,5 +633,5 @@
     return s;
   }
 
-  return { parseThread, stripExcludedPhrases, stripSignature, stripDisclaimers, parseRecipients, parseDate, parseSender, formatDateRu, normalize };
+  return { IMAGE_MARKER_SRC, formatElapsed, parseThread, stripExcludedPhrases, stripSignature, stripDisclaimers, parseRecipients, parseDate, parseSender, formatDateRu, normalize };
 });
