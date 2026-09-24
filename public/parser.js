@@ -66,6 +66,12 @@
     if (!t) return true;
     if (/^[-_=—–~*]{4,}$/.test(t)) return true;
     if (/^[-_=—–~]{2,}.{0,60}?[-_=—–~]{2,}$/.test(t)) return true;
+    // Картинки, "Sent from my iPhone", баннеры о внешней почте
+    if (/^\[(?:cid:|image|картинка|图片)[^\]]*\]$/i.test(t)) return true;
+    if (/^<?image\d*\.(?:png|jpe?g|gif|bmp)>?$/i.test(t)) return true;
+    if (/^(?:sent from my|sent from mail for|get outlook for|отправлено с (?:iphone|ipad|android|моего)|скачайте outlook|发自我的)/i.test(t)) return true;
+    if (/^\[?(?:external(?: email| sender)?|внешн(?:ее|ий) (?:письмо|отправитель))\]?\s*[:：]?$/i.test(t)) return true;
+    if (/^(?:caution|warning|внимание)\s*[:：]\s*this (?:e-?mail|message) (?:originated|was sent) from outside/i.test(t)) return true;
     return false;
   }
 
@@ -108,6 +114,7 @@
     if (!first || first.type !== 'from') return null;
     let fromRaw = first.value;
     const toRaw = [];
+    let hasSubject = false;
     let dateRaw = '';
     let count = 1;
     let lastType = 'from';
@@ -130,6 +137,7 @@
       if (kv && kv.type !== 'from') {
         if (kv.type === 'date' && !dateRaw) dateRaw = kv.value;
         if (kv.type === 'to') toRaw.push(kv.value);
+        if (kv.type === 'subject') hasSubject = true;
         count++;
         lastType = kv.type;
         j++;
@@ -140,6 +148,16 @@
     }
     if (count < 2) return null;
     if (!dateRaw && !EMAIL_RE.test(fromRaw)) return null;
+    // Текст письма начинается строго после строки Subject: если блок заголовка
+    // прервался раньше (нестандартная строка, перенос списка адресатов),
+    // ищем Subject дальше и пропускаем всё до него.
+    if (!hasSubject) {
+      for (let k = j; k < lines.length && k < i + 30; k++) {
+        const kv = headerKV(lines[k]);
+        if (kv && kv.type === 'from') break;
+        if (kv && kv.type === 'subject') { j = k + 1; break; }
+      }
+    }
     return { start: i, end: j, sender: parseSender(fromRaw), dateRaw: cleanDate(dateRaw), recipients: parseRecipients(toRaw.join(';')) };
   }
 
@@ -201,28 +219,37 @@
   }
 
   // --- Веб-интерфейс Gmail: "Имя <email>" / дата / "кому: мне" ---
+  // --- Веб-интерфейс Gmail и область чтения Outlook ---
+  // "Имя <email>", затем в любом порядке дата и строки "To:/Cc:/кому: мне"
+  const RECIP_LINE_RE = /^(?:to|cc|кому|копия|收件人|抄送|发送至|发给|an|à|para)(?:\s*[:：]\s*|\s+)/i;
+
   function tryGmailUi(lines, i) {
     const line = lines[i].trim();
     const m = /^"?([^<>"@]{0,80}?)"?\s*<([^<>\s]+@[^<>\s]+)>\s*(.*)$/.exec(line);
     if (!m || !EMAIL_RE.test(m[2])) return null;
     let dateRaw = '';
-    let j = i + 1;
-    if (m[3] && looksLikeDate(m[3])) {
+    if (m[3]) {
+      if (!looksLikeDate(m[3])) return null;
       dateRaw = m[3];
-    } else if (m[3]) {
-      return null;
-    } else {
-      while (j < lines.length && isBlank(lines[j]) && j - i < 3) j++;
-      if (j >= lines.length || !looksLikeDate(lines[j].trim())) return null;
-      dateRaw = lines[j].trim();
-      j++;
     }
-    let k = j;
-    while (k < lines.length && isBlank(lines[k]) && k - j < 3) k++;
-    if (k < lines.length && /^(?:to|кому|收件人|发送至|发给|an|à|para|a)(?:\s*[:：]|\s+)/i.test(lines[k].trim()) && lines[k].length < 300) {
-      j = k + 1;
+    const toRaw = [];
+    let j = i + 1;
+    let seen = 0;
+    while (j < lines.length && seen < 8) {
+      const t = lines[j].trim();
+      if (!t) { if (j - i > 12) break; j++; continue; }
+      const rm = RECIP_LINE_RE.exec(t);
+      const isRecip = rm && t.length < 500 &&
+        (/[:：]/.test(rm[0]) || (t.length < 80 && /(?:^|\s)(?:me|мне|我)(?:\s|,|$)|@|,/.test(t)));
+      if (isRecip) { toRaw.push(t.slice(rm[0].length)); j++; seen++; continue; }
+      if (!dateRaw && t.length < 100 && looksLikeDate(t)) { dateRaw = t; j++; seen++; continue; }
+      break;
     }
-    return { start: i, end: j, sender: parseSender(m[1] + ' <' + m[2] + '>'), dateRaw: cleanDate(dateRaw) };
+    if (!dateRaw) return null;
+    return {
+      start: i, end: j, sender: parseSender(m[1] + ' <' + m[2] + '>'),
+      dateRaw: cleanDate(dateRaw), recipients: parseRecipients(toRaw.join(';'))
+    };
   }
 
   function cleanDate(s) {
@@ -370,6 +397,49 @@
     return opts && opts.stripSignatures === false ? out : stripSignature(out);
   }
 
+  const SUBJECT_LINE_RE = /^(?:re|fw|fwd|aw|wg|tr|sv|回复|答复|转发|ответ|отв|пересл|пересылка)\s*(?:\[\d+\])?\s*[:：]/i;
+  const GREETING_RE = /^(?:dear|hi|hello|hey|good (?:morning|afternoon|evening)|здравствуйте|добрый|доброе|уважаем|привет|您好|你好|尊敬)/i;
+
+  /**
+   * "Стандартная подпись": одинаковые строки в конце нескольких писем
+   * (одного или разных отправителей). Убираем такой повторяющийся хвост.
+   */
+  function stripRepeatedTails(messages) {
+    const key = (l) => l.toLowerCase().replace(/\s+/g, ' ').trim();
+    // Одинаковые письма (дубликаты в цепочке) считаем за одно
+    const groups = new Map();
+    const groupOf = messages.map((msg) => {
+      const sig = msg.lines.map(key).join('\n');
+      if (!groups.has(sig)) groups.set(sig, groups.size);
+      return groups.get(sig);
+    });
+    const where = new Map(); // строка -> множество писем, где она встречается
+    messages.forEach((msg, idx) => {
+      for (const l of msg.lines) {
+        const k = key(l);
+        if (!where.has(k)) where.set(k, new Set());
+        where.get(k).add(groupOf[idx]);
+      }
+    });
+    messages.forEach((msg, idx) => {
+      const lines = msg.lines;
+      const repeated = (l) => where.get(key(l)).size > 1 && !GREETING_RE.test(l);
+      let start = lines.length;
+      let rep = 0;
+      while (start > 1) {
+        const l = lines[start - 1];
+        if (repeated(l)) { rep++; start--; continue; }
+        if (isSignatureLike(l) || CLOSING_RE.test(l)) { start--; continue; }
+        break;
+      }
+      // Сдвигаем начало на первую повторяющуюся строку блока
+      while (start < lines.length && !repeated(lines[start]) && !CLOSING_RE.test(lines[start])) start++;
+      // Если повторяется весь текст письма, это не подпись — не трогаем
+      if (lines.slice(0, start).every((l) => where.get(key(l)).size > 1)) return;
+      if (rep >= 2 && start < lines.length && start > 0) msg.lines = lines.slice(0, start);
+    });
+  }
+
   function findMarker(lines, i) {
     return tryHeaderBlock(lines, i) || tryWroteLine(lines, i) || tryGmailUi(lines, i);
   }
@@ -391,9 +461,16 @@
       }
     }
 
+    // Строка темы ("RE: ...") прямо перед заголовком следующего письма к тексту не относится
+    const bodySlice = (from, to) => {
+      const part = lines.slice(from, to);
+      while (part.length && (isBlank(part[part.length - 1]) || SUBJECT_LINE_RE.test(part[part.length - 1].trim()))) part.pop();
+      return part;
+    };
+
     const messages = [];
     const firstStart = markers.length ? markers[0].start : lines.length;
-    const preface = cleanBody(lines.slice(0, firstStart), opts);
+    const preface = cleanBody(bodySlice(0, firstStart), opts);
     if (preface.length) {
       messages.push({ name: '', email: '', dateRaw: '', lines: preface, unknown: true, recipients: [] });
     }
@@ -403,11 +480,13 @@
         name: m.sender.name,
         email: m.sender.email,
         dateRaw: m.dateRaw,
-        lines: cleanBody(lines.slice(m.end, end), opts),
+        lines: cleanBody(bodySlice(m.end, end), opts),
         unknown: false,
         recipients: m.recipients || []
       });
     });
+
+    if (!opts || opts.stripSignatures !== false) stripRepeatedTails(messages);
 
     // Дополняем недостающие имя/адрес по другим письмам этого же отправителя
     const nameByEmail = new Map();

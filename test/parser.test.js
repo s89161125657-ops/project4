@@ -263,3 +263,58 @@ test('recipients are collected; names are protected from translation', () => {
   const fakeTranslated = prot.text.replace(/QZX(\d+)Z/g, 'QZX $1 Z');
   assert.equal(restoreNames(fakeTranslated, prot.names), src);
 });
+
+test('body is only the text after Subject: broken header block is skipped to Subject', () => {
+  const text = [
+    'From: Cui <cui@haier.com>',
+    'Sent: Monday, September 22, 2025 10:15 AM',
+    'To: Sergei Zakharov <zsa@inpren.ru>; Li Wei',
+    'Wang Fang',
+    'Importance: High',
+    'Subject: RE: Freezer',
+    '',
+    'Dear Sergei,',
+    'Done.'
+  ].join('\n');
+  assert.deepEqual(parseThread(text)[0].lines, ['Dear Sergei,', 'Done.']);
+});
+
+test('Outlook reading pane copy: subject line, sender, To/Cc, date', () => {
+  const text = [
+    'RE: Freezer DW-86L728J error E5',
+    'Cui <cui@haier.com>',
+    'To: Sergei Zakharov <zsa@inpren.ru>',
+    'Cc: Li Wei <liwei@haiermed.com>',
+    'Mon 9/22/2025 10:15 AM',
+    '[cid:image001.png@01DC2B]',
+    'Dear Sergei,',
+    'The sensor is shipped.',
+    'Sent from my iPhone',
+    'RE: Freezer DW-86L728J error E5',
+    'Sergei Zakharov <zsa@inpren.ru>',
+    'To: Cui <cui@haier.com>',
+    'Sun 9/21/2025 9:00 AM',
+    'Dear Cui,',
+    'To be honest, we need it urgently.'
+  ].join('\n');
+  const msgs = parseThread(text);
+  assert.equal(msgs.length, 2);
+  assert.equal(msgs[0].name, 'Cui');
+  assert.equal(formatDateRu(msgs[0].date), '22.09.2025 10:15');
+  assert.deepEqual(msgs[0].recipients.map((r) => r.name), ['Sergei Zakharov', 'Li Wei']);
+  assert.deepEqual(msgs[0].lines, ['Dear Sergei,', 'The sensor is shipped.']);
+  assert.deepEqual(msgs[1].lines, ['Dear Cui,', 'To be honest, we need it urgently.']);
+});
+
+test('standard signature repeated in several messages is removed', () => {
+  const sig = ['Best regards', 'Cui', 'Haier Biomedical - Protecting life science worldwide!', 'Visit our booth at Medica 2025, hall 3.'];
+  const msg = (date, body) => ['From: Cui <cui@haier.com>', 'Sent: ' + date, 'Subject: X', '', ...body, '', ...sig, ''];
+  const text = [...msg('22.09.2025 10:00', ['Dear Sergei,', 'First answer.']), ...msg('21.09.2025 10:00', ['Dear Sergei,', 'Second answer.'])].join('\n');
+  const msgs = parseThread(text);
+  assert.deepEqual(msgs[0].lines, ['Dear Sergei,', 'First answer.']);
+  assert.deepEqual(msgs[1].lines, ['Dear Sergei,', 'Second answer.']);
+  // Одинаковые письма целиком (дубликаты) не обрезаются
+  const dup = [...msg('22.09.2025 10:00', ['Hello', 'Same text here.']), ...msg('22.09.2025 10:00', ['Hello', 'Same text here.'])].join('\n');
+  assert.deepEqual(parseThread(dup, { stripSignatures: false })[0].lines.slice(0, 2), ['Hello', 'Same text here.']);
+  assert.deepEqual(parseThread(dup)[0].lines.slice(0, 2), ['Hello', 'Same text here.']);
+});
