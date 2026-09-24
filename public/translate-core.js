@@ -56,10 +56,8 @@
 
   // Словарь: как передавать по-русски отдельные имена и термины.
   // Применяется к русской колонке после перевода (в т.ч. к именам отправителей).
+  // Остальные имена и фамилии не переводятся (см. protectNames).
   const GLOSSARY = [
-    // Cui -> Цуи (и варианты Google Translate: Цуй, Цуя, Цую, Цуем, Цуе)
-    [/(?<![A-Za-z])Cui(?![A-Za-z])/g, 'Цуи'],
-    [/(?<![А-Яа-яЁё])Цу(?:й|я|ю|ем|е)(?![А-Яа-яЁё])/g, 'Цуи'],
     // Sergei Zakharov -> Сергей Захаров (в т.ч. "Zakharov Sergei", "Mr. Zakharov", "Dear Sergei")
     [/(?<![A-Za-z])Sergei(?![A-Za-z])/g, 'Сергей'],
     [/(?<![A-Za-z])Zakharov(?![A-Za-z])/g, 'Захаров'],
@@ -67,6 +65,52 @@
     [/(?<![А-Яа-яЁё])Серг(?:еи|ей|ии)\s+Захаров(?![А-Яа-яЁё])/g, 'Сергей Захаров'],
     [/(?<![А-Яа-яЁё])Закаров(?![А-Яа-яЁё])/g, 'Захаров']
   ];
+  // Имена, которые переводятся по словарю, а не остаются как есть
+  const TRANSLATED_NAMES = /^(?:sergei|zakharov)$/i;
+  // Слова, которые не считаем частью имени, даже если они есть в имени отправителя
+  const NOT_NAMES = /^(?:mr|mrs|ms|dr|the|and|of|service|sales|support|team|manager|engineer|dept|department|info|admin|office|group|company|ltd|llc|co|inc|will|may|mark|bill|rose|april|june|august|grant|hope|joy)\.?$/i;
+
+  /** Список имён, которые нужно оставить без перевода. people: [{name}] */
+  function collectNames(people) {
+    const set = new Set();
+    for (const p of people) {
+      const full = String(p.name || '').trim();
+      if (!full) continue;
+      const words = full.split(/[\s,]+/).filter(Boolean);
+      if (!words.some((w) => TRANSLATED_NAMES.test(w))) set.add(full);
+      for (const w of words) {
+        const clean = w.replace(/[.,;:()"']/g, '');
+        if (clean.length < 2 || TRANSLATED_NAMES.test(clean) || NOT_NAMES.test(clean)) continue;
+        // Латинские имена — только с заглавной буквы; китайские иероглифы — любые
+        if (/^\p{Lu}/u.test(clean) || /^\p{Script=Han}+$/u.test(clean)) set.add(clean);
+      }
+    }
+    return [...set].sort((a, b) => b.length - a.length);
+  }
+
+  const escRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+  /**
+   * Заменяет имена на метки-заглушки, которые переводчик не меняет.
+   * Возвращает { text, names } — names нужен для restoreNames.
+   */
+  function protectNames(text, names) {
+    if (!names.length) return { text: String(text), names };
+    const re = new RegExp(names.map((n) => /^\p{Script=Han}+$/u.test(n)
+      ? escRe(n)
+      : '(?<![\\p{L}\\d])' + escRe(n) + '(?![\\p{L}\\d])').join('|'), 'gu');
+    const used = [];
+    const out = String(text).replace(re, (m) => {
+      let idx = used.indexOf(m);
+      if (idx < 0) idx = used.push(m) - 1;
+      return 'QZX' + idx + 'Z';
+    });
+    return { text: out, names: used };
+  }
+
+  function restoreNames(text, names) {
+    return String(text).replace(/QZX\s*(\d+)\s*Z/gi, (m, i) => (names[+i] !== undefined ? names[+i] : m));
+  }
 
   function applyGlossary(text) {
     let s = String(text);
@@ -96,5 +140,5 @@
     return parts.join('\n');
   }
 
-  return { splitChunks, translateText, applyGlossary, parseGtx, isMostlyRussian, MAX_CHUNK };
+  return { splitChunks, translateText, applyGlossary, collectNames, protectNames, restoreNames, parseGtx, isMostlyRussian, MAX_CHUNK };
 });

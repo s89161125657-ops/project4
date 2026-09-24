@@ -2,7 +2,7 @@
   'use strict';
 
   const { parseThread, formatDateRu } = window.MailParser;
-  const { translateText, isMostlyRussian, applyGlossary } = window.TranslateCore;
+  const { translateText, isMostlyRussian, applyGlossary, collectNames, protectNames, restoreNames } = window.TranslateCore;
 
   const HEADER_GREEN = '#006400';
   const NAVY = '#000080';
@@ -22,7 +22,7 @@
   const $ = (id) => document.getElementById(id);
   const els = {
     paste: $('pasteBtn'), process: $('processBtn'), copy: $('copyBtn'), clear: $('clearBtn'),
-    sample: $('sampleBtn'), stripSig: $('stripSig'), source: $('source'), sourceBox: $('sourceBox'),
+    stripSig: $('stripSig'), source: $('source'), sourceBox: $('sourceBox'),
     status: $('status'), legend: $('legend'), result: $('result')
   };
 
@@ -209,11 +209,17 @@
     render();
 
     // Собираем тексты для перевода (русские тексты не переводим)
+    // Имена и фамилии участников переписки не переводим — заменяем их метками
+    const names = collectNames(messages.flatMap((m) => [m, ...(m.recipients || [])]));
     const texts = [];
     const jobs = messages.map((msg) => {
-      const job = { body: -1, date: -1 };
+      const job = { body: -1, date: -1, names: [] };
       const body = msg.lines.join('\n');
-      if (body && !isMostlyRussian(body)) job.body = texts.push(body) - 1;
+      if (body && !isMostlyRussian(body)) {
+        const prot = protectNames(body, names);
+        job.names = prot.names;
+        job.body = texts.push(prot.text) - 1;
+      }
       if (!msg.date && msg.dateRaw && !isMostlyRussian(msg.dateRaw)) job.date = texts.push(msg.dateRaw) - 1;
       return job;
     });
@@ -224,7 +230,7 @@
       current.translations = messages.map((msg, i) => {
         const job = jobs[i];
         const lines = job.body >= 0
-          ? out[job.body].split('\n').map((l) => applyGlossary(l.trim())).filter(Boolean)
+          ? restoreNames(out[job.body], job.names).split('\n').map((l) => applyGlossary(l.trim())).filter(Boolean)
           : msg.lines.map(applyGlossary);
         return { lines, date: job.date >= 0 ? out[job.date].trim() : '' };
       });
@@ -293,56 +299,6 @@
     setStatus('Результат скопирован — его можно вставить в письмо с сохранением цветов.');
   }
 
-  const SAMPLE = [
-    'From: Cui <cuibaozhen@haierbiomedical.com>',
-    'Sent: Tuesday, September 23, 2025 9:30 AM',
-    'To: Sergey Zaytsev <zsa@inpren.ru>',
-    'Cc: Li Wei <liwei@haiermed.com>',
-    'Subject: RE: Freezer DW-86L728J error E5',
-    '',
-    'Dear Sergey,',
-    '',
-    'Thank you for the photos. Error E5 means the temperature sensor is faulty.',
-    '',
-    'We will send a new sensor by DHL tomorrow. Mr. Li will share the tracking number.',
-    '',
-    'Best regards',
-    '崔保振',
-    'Cui',
-    'Service Manager',
-    'Mobile Phone: +86 13402261534',
-    'Qingdao Haier Biomedical Co.,Ltd.',
-    'No.280 Fengyuan Road, High-tech Zone, Qingdao(266111), P.R.China',
-    '',
-    'From: Sergey Zaytsev <zsa@inpren.ru>',
-    'Sent: Monday, September 22, 2025 10:15 AM',
-    'To: Cui <cuibaozhen@haierbiomedical.com>',
-    'Subject: Freezer DW-86L728J error E5',
-    '',
-    'Dear Cui,',
-    '',
-    '',
-    'The customer reports error E5 on the freezer display.',
-    'Photos are attached. Could you please advise?',
-    '',
-    'Best regards,',
-    'Sergey Zaytsev',
-    'INPREN LLC',
-    'Tel: +7 495 123-45-67',
-    '',
-    'From: Li Wei <liwei@haiermed.com>',
-    'Sent: Friday, September 19, 2025 4:02 PM',
-    'To: Sergey Zaytsev <zsa@inpren.ru>',
-    'Subject: Freezer DW-86L728J delivery',
-    '',
-    'Dear Sergey,',
-    'The freezer was delivered to the customer today.',
-    'Thanks',
-    'Li Wei',
-    'Sales Manager',
-    'Tel: +86 532 8893 1234'
-  ].join('\n');
-
   els.paste.addEventListener('click', pasteFromClipboard);
   els.process.addEventListener('click', processText);
   els.copy.addEventListener('click', copyResult);
@@ -355,11 +311,6 @@
     els.legend.innerHTML = '';
     els.copy.disabled = true;
     setStatus('');
-  });
-  els.sample.addEventListener('click', () => {
-    els.source.value = SAMPLE;
-    els.sourceBox.open = true;
-    processText();
   });
   els.stripSig.addEventListener('change', () => { if (els.source.value.trim()) processText(); });
   els.source.addEventListener('paste', () => setTimeout(processText, 0));

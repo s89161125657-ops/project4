@@ -107,6 +107,7 @@
     const first = headerKV(lines[i]);
     if (!first || first.type !== 'from') return null;
     let fromRaw = first.value;
+    const toRaw = [];
     let dateRaw = '';
     let count = 1;
     let lastType = 'from';
@@ -128,17 +129,18 @@
       const kv = headerKV(line);
       if (kv && kv.type !== 'from') {
         if (kv.type === 'date' && !dateRaw) dateRaw = kv.value;
+        if (kv.type === 'to') toRaw.push(kv.value);
         count++;
         lastType = kv.type;
         j++;
         continue;
       }
-      if (lastType === 'to' && /[@;,]/.test(line) && !kv) { j++; continue; }
+      if (lastType === 'to' && /[@;,]/.test(line) && !kv) { toRaw.push(line); j++; continue; }
       break;
     }
     if (count < 2) return null;
     if (!dateRaw && !EMAIL_RE.test(fromRaw)) return null;
-    return { start: i, end: j, sender: parseSender(fromRaw), dateRaw: cleanDate(dateRaw) };
+    return { start: i, end: j, sender: parseSender(fromRaw), dateRaw: cleanDate(dateRaw), recipients: parseRecipients(toRaw.join(';')) };
   }
 
   // --- Формат Gmail/Apple Mail: "On <дата>, <Имя> <email> wrote:" ---
@@ -231,6 +233,24 @@
       .replace(/\s{2,}/g, ' ');
   }
 
+  // Имена получателей из строк To/Cc: "Li Wei <a@b>; Wang, Fang <c@d>, e@f"
+  function parseRecipients(raw) {
+    const out = [];
+    const re = /([^;<>]*?)\s*<\s*(?:mailto:)?([^<>\s]+@[^<>\s]+?)\s*>/g;
+    let m;
+    let rest = String(raw || '');
+    while ((m = re.exec(raw))) {
+      const name = m[1].replace(/^[\s,;]+/, '');
+      out.push(parseSender(name + ' <' + m[2] + '>'));
+    }
+    rest = rest.replace(re, ';');
+    for (const part of rest.split(';')) {
+      const p = parseSender(part);
+      if (p.name && !EMAIL_RE.test(part) && p.name.length <= 60) out.push(p);
+    }
+    return out.filter((p) => p.name);
+  }
+
   function parseSender(raw) {
     const s = String(raw || '').replace(/mailto:/gi, ' ');
     const em = s.match(EMAIL_RE_G);
@@ -312,8 +332,38 @@
     return lines;
   }
 
+  // --- Юридические оговорки (disclaimer) в конце писем ---
+  // Фрагменты, по которым узнаётся оговорка (достаточно одного в строке).
+  const DISCLAIMER_RE = new RegExp([
+    'information transmitted is intended',
+    'and/or privileged material',
+    'unauthorized disclosure, reproduction',
+    'other than the intended recipient',
+    'delete the email together with any material attached',
+    'not necessarily represent those of Haier',
+    '本邮件可能包含敏感信息',
+    '仅限于发给指定的收件人',
+    '任何未经授权泄露',
+    '请及时告知发送者',
+    '并不代表海尔集团',
+    '^\\s*(?:confidentiality notice|disclaimer)\\s*[:：]',
+    '^\\s*this (?:e-?mail|message)(?: and any (?:files|attachments)[^.]*)? (?:is|are|may be) (?:strictly )?confidential'
+  ].join('|'), 'i');
+
+  // Удаляет оговорку: от строки, где она начинается, до конца абзаца
+  function stripDisclaimers(lines) {
+    const out = [];
+    let skipping = false;
+    for (const line of lines) {
+      if (isBlank(line)) { skipping = false; out.push(line); continue; }
+      if (!skipping && DISCLAIMER_RE.test(line)) skipping = true;
+      if (!skipping) out.push(line);
+    }
+    return out;
+  }
+
   function cleanBody(lines, opts) {
-    const out = lines
+    const out = stripDisclaimers(lines)
       .map((l) => l.replace(/\t/g, '    ').replace(/\s+$/, ''))
       .filter((l) => !isBlank(l) && !isNoise(l))
       .map((l) => l.trim());
@@ -345,7 +395,7 @@
     const firstStart = markers.length ? markers[0].start : lines.length;
     const preface = cleanBody(lines.slice(0, firstStart), opts);
     if (preface.length) {
-      messages.push({ name: '', email: '', dateRaw: '', lines: preface, unknown: true });
+      messages.push({ name: '', email: '', dateRaw: '', lines: preface, unknown: true, recipients: [] });
     }
     markers.forEach((m, idx) => {
       const end = idx + 1 < markers.length ? markers[idx + 1].start : lines.length;
@@ -354,7 +404,8 @@
         email: m.sender.email,
         dateRaw: m.dateRaw,
         lines: cleanBody(lines.slice(m.end, end), opts),
-        unknown: false
+        unknown: false,
+        recipients: m.recipients || []
       });
     });
 
@@ -453,5 +504,5 @@
     return s;
   }
 
-  return { parseThread, stripSignature, parseDate, parseSender, formatDateRu, normalize };
+  return { parseThread, stripSignature, stripDisclaimers, parseRecipients, parseDate, parseSender, formatDateRu, normalize };
 });

@@ -173,7 +173,7 @@ test('translate-core helpers', () => {
 });
 
 const { stripSignature } = require('../public/parser');
-const { applyGlossary } = require('../public/translate-core');
+const { applyGlossary, collectNames, protectNames, restoreNames } = require('../public/translate-core');
 
 const CUI_SIGNATURE = [
   'Best regards',
@@ -218,12 +218,48 @@ test('signature variants', () => {
   assert.deepEqual(stripSignature(body2), body2);
 });
 
-test('glossary: Cui -> Цуи, Sergei Zakharov -> Сергей Захаров', () => {
-  assert.equal(applyGlossary('Cui'), 'Цуи');
-  assert.equal(applyGlossary('Господин Цуй сказал, что Цую отправили счёт.'), 'Господин Цуи сказал, что Цуи отправили счёт.');
-  assert.equal(applyGlossary('Cuisine и Цуйка'), 'Cuisine и Цуйка');
+test('glossary: only Sergei Zakharov is translated', () => {
+  assert.equal(applyGlossary('Cui'), 'Cui');
   assert.equal(applyGlossary('Sergei Zakharov'), 'Сергей Захаров');
   assert.equal(applyGlossary('Zakharov Sergei'), 'Захаров Сергей');
   assert.equal(applyGlossary('Уважаемый Sergei, г-н Закаров и Сергеи Захаров'), 'Уважаемый Сергей, г-н Захаров и Сергей Захаров');
   assert.equal(applyGlossary('Sergeiev Zakharova'), 'Sergeiev Zakharova');
+});
+
+const HAIER_DISCLAIMER = [
+  'The information transmitted is intended solely for the use of the addressee and may contain confidential and/or privileged material. Any unauthorized disclosure, reproduction, distribution, dissemination, or taking of any action in reliance upon, this information by persons or entities other than the intended recipient is prohibited. If you received this in error, please contact the sender and delete the email together with any material attached (if any) completely from any device immediately. Unless otherwise stated, any views or opinions expressed in this email are solely those of the author and do not necessarily represent those of Haier Group. ',
+  '本邮件可能包含敏感信息且仅限于发给指定的收件人，任何未经授权泄露、复制、散布或传播此信息的行为将被禁止。如果您错误收到了此邮件，请及时告知发送者并立即从所有设备中完全删除此邮件及附件。除非另有说明，否则邮件中可能包含的观点或建议仅代表发件者本人，并不代表海尔集团。 '
+];
+
+test('Haier disclaimer is removed (one line per paragraph and wrapped)', () => {
+  const head = ['From: Cui <cui@haier.com>', 'Sent: 22.09.2025 10:00', 'To: Sergei Zakharov <zsa@inpren.ru>', ''];
+  const text = [...head, 'Dear Sergei,', 'OK.', '', ...CUI_SIGNATURE, '', ...HAIER_DISCLAIMER].join('\n');
+  assert.deepEqual(parseThread(text)[0].lines, ['Dear Sergei,', 'OK.']);
+  assert.deepEqual(parseThread(text, { stripSignatures: false })[0].lines, ['Dear Sergei,', 'OK.', ...CUI_SIGNATURE]);
+  // Оговорка перенесена по строкам и идёт сразу за текстом без пустой строки
+  const wrapped = HAIER_DISCLAIMER[0].match(/.{1,70}(\s|$)/g).map((l) => l.trim());
+  const text2 = [...head, 'Please check.', ...wrapped, ...HAIER_DISCLAIMER[1].match(/.{1,30}/g)].join('\n');
+  assert.deepEqual(parseThread(text2)[0].lines, ['Please check.']);
+});
+
+test('recipients are collected; names are protected from translation', () => {
+  const text = [
+    'From: Li Wei <liwei@haiermed.com>',
+    'Sent: 22.09.2025 10:00',
+    'To: Sergei Zakharov <zsa@inpren.ru>; Wang, Fang <wf@haiermed.com>',
+    'Cc: 崔保振 Cui <cui@haier.com>',
+    '',
+    'Hi'
+  ].join('\n');
+  const [m] = parseThread(text);
+  assert.deepEqual(m.recipients.map((r) => r.name), ['Sergei Zakharov', 'Fang Wang', '崔保振 Cui']);
+  const names = collectNames([m, ...m.recipients]);
+  assert.ok(!names.includes('Sergei') && !names.includes('Sergei Zakharov'));
+  const src = 'Dear Sergei, Mr. Cui and Li Wei will call Fang tomorrow. 崔保振 agrees. Liquid is cold.';
+  const prot = protectNames(src, names);
+  assert.ok(!/Cui|Li Wei|Fang|崔保振/.test(prot.text), prot.text);
+  assert.ok(prot.text.includes('Sergei') && prot.text.includes('Liquid'));
+  // Переводчик мог вставить пробелы в метки
+  const fakeTranslated = prot.text.replace(/QZX(\d+)Z/g, 'QZX $1 Z');
+  assert.equal(restoreNames(fakeTranslated, prot.names), src);
 });
