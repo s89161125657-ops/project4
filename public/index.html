@@ -11,7 +11,7 @@
 <body>
   <header class="topbar">
     <h1>Переписка в читабельном виде</h1>
-    <p class="sub">Скопируйте цепочку писем (Ctrl+A, Ctrl+C в почтовом клиенте) и нажмите кнопку ниже.</p>
+    <p class="sub">Скопируйте цепочку писем (Ctrl+A, Ctrl+C в почтовом клиенте) и нажмите кнопку ниже — или перетащите письмо из Outlook в поле ниже.</p>
   </header>
 
   <main>
@@ -22,6 +22,11 @@
         <button id="processBtn" type="button">Обработать</button>
         <button id="copyBtn" type="button" disabled>Копировать результат</button>
         <button id="clearBtn" type="button" class="ghost">Очистить</button>
+      </div>
+      <div id="dropZone" class="dropzone" role="button" tabindex="0" aria-label="Перетащите письмо из Outlook сюда или нажмите, чтобы выбрать файл">
+        <strong>Перетащите письмо из Outlook сюда</strong>
+        <span>или нажмите, чтобы выбрать файл .msg / .eml — письмо будет сразу переведено</span>
+        <input id="fileInput" type="file" accept=".msg,.eml,.txt,.htm,.html,message/rfc822" multiple hidden>
       </div>
       <label class="option"><input type="checkbox" id="stripSig" checked> Убирать подписи в конце писем</label>
       <details id="sourceBox">
@@ -37,6 +42,7 @@
 
   <script src="parser.js"></script>
   <script src="translate-core.js"></script>
+  <script src="mailfile.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

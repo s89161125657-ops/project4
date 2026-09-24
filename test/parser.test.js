@@ -318,3 +318,128 @@ test('standard signature repeated in several messages is removed', () => {
   assert.deepEqual(parseThread(dup, { stripSignatures: false })[0].lines.slice(0, 2), ['Hello', 'Same text here.']);
   assert.deepEqual(parseThread(dup)[0].lines.slice(0, 2), ['Hello', 'Same text here.']);
 });
+
+const { stripExcludedPhrases } = require('../public/parser');
+const MailFile = require('../public/mailfile');
+
+test('AWT reminder phrase is excluded (one line, wrapped, with link)', () => {
+  const phrase = 'Напоминаем, каждый клиент нашей компании имеет личный кабинет с технической и сервисной документацией на нашем сайте www.awt.ru';
+  const text = (tail) => ['From: Иван Петров <ivan@awt.ru>', 'Sent: 22.09.2025 10:00', 'Subject: Сервис', '', 'Добрый день!', 'Счёт во вложении.', '', ...tail].join('\n');
+  assert.deepEqual(parseThread(text([phrase]), { stripSignatures: false })[0].lines, ['Добрый день!', 'Счёт во вложении.']);
+  assert.deepEqual(parseThread(text([phrase + '<https://www.awt.ru/>']), { stripSignatures: false })[0].lines, ['Добрый день!', 'Счёт во вложении.']);
+  const wrapped = ['Напоминаем, каждый клиент нашей компании имеет личный', 'кабинет с технической и сервисной документацией на нашем сайте', '[www.awt.ru](https://www.awt.ru)'];
+  assert.deepEqual(parseThread(text(wrapped), { stripSignatures: false })[0].lines, ['Добрый день!', 'Счёт во вложении.']);
+  // Текст в той же строке до фразы сохраняется
+  assert.deepEqual(stripExcludedPhrases(['Спасибо! ' + phrase + '.']), ['Спасибо! ']);
+});
+
+test('glossary for Russian -> English', () => {
+  assert.equal(applyGlossary('Sergey Zakharov will call', 'en'), 'Sergei Zakharov will call');
+  assert.equal(applyGlossary('Сергей Захаров', 'en'), 'Sergei Zakharov');
+  assert.equal(applyGlossary('Sergey Zaytsev', 'en'), 'Sergey Zaytsev');
+  assert.equal(applyGlossary('Sergei Zakharov', 'ru'), 'Сергей Захаров');
+});
+
+test('.eml file is converted to a thread text', () => {
+  const eml = [
+    'From: =?UTF-8?B?0JjQstCw0L0g0J/QtdGC0YDQvtCy?= <ivan@awt.ru>',
+    'To: Cui <cui@haier.com>',
+    'Subject: =?UTF-8?Q?RE:_Freezer?=',
+    'Date: Mon, 22 Sep 2025 10:15:00 +0000',
+    'MIME-Version: 1.0',
+    'Content-Type: multipart/alternative; boundary="b1"',
+    '',
+    '--b1',
+    'Content-Type: text/plain; charset=utf-8',
+    'Content-Transfer-Encoding: quoted-printable',
+    '',
+    'Dear Cui,=0D=0A=D0=A1=D0=BF=D0=B0=D1=81=D0=B8=D0=B1=D0=BE!',
+    '--b1',
+    'Content-Type: text/html; charset=utf-8',
+    '',
+    '<p>ignored</p>',
+    '--b1--'
+  ].join('\r\n');
+  const mail = MailFile.parseEml(new Uint8Array(Buffer.from(eml, 'latin1')));
+  assert.equal(mail.fromName, 'Иван Петров');
+  assert.equal(mail.fromEmail, 'ivan@awt.ru');
+  assert.equal(mail.subject, 'RE: Freezer');
+  assert.equal(mail.date.toISOString(), '2025-09-22T10:15:00.000Z');
+  const [m] = parseThread(MailFile.fileToText('a.eml', new Uint8Array(Buffer.from(eml, 'latin1'))));
+  assert.equal(m.name, 'Иван Петров');
+  assert.deepEqual(m.lines, ['Dear Cui,', 'Спасибо!']);
+});
+
+// Минимальный писатель .msg (Compound File) для проверки чтения
+function buildMsg(streams) {
+  const SEC = 512;
+  const names = Object.keys(streams);
+  const dataSectors = [];
+  const entries = [{ name: 'Root Entry', type: 5, start: 0xfffffffe, size: 0 }];
+  let next = 0;
+  for (const n of names) {
+    const data = streams[n];
+    const count = Math.max(1, Math.ceil(data.length / SEC));
+    entries.push({ name: n, type: 2, start: next, size: data.length, data, count });
+    next += count;
+  }
+  const dirSectors = Math.ceil(entries.length * 128 / SEC);
+  const dirStart = next;
+  const fatStart = dirStart + dirSectors;
+  const total = fatStart + 1;
+  const fat = new Uint32Array(SEC / 4).fill(0xffffffff);
+  for (const e of entries.slice(1)) for (let i = 0; i < e.count; i++) fat[e.start + i] = i === e.count - 1 ? 0xfffffffe : e.start + i + 1;
+  for (let i = 0; i < dirSectors; i++) fat[dirStart + i] = i === dirSectors - 1 ? 0xfffffffe : dirStart + i + 1;
+  fat[fatStart] = 0xfffffffd;
+  const buf = Buffer.alloc((total + 1) * SEC);
+  Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]).copy(buf, 0);
+  buf.writeUInt16LE(9, 0x1e); buf.writeUInt16LE(6, 0x20);
+  buf.writeUInt32LE(1, 0x2c); buf.writeUInt32LE(dirStart, 0x30);
+  buf.writeUInt32LE(0, 0x38); // все потоки — в обычных секторах
+  buf.writeUInt32LE(0xfffffffe, 0x3c); buf.writeUInt32LE(0xfffffffe, 0x44);
+  for (let i = 0; i < 109; i++) buf.writeUInt32LE(i === 0 ? fatStart : 0xffffffff, 0x4c + i * 4);
+  const off = (n) => (n + 1) * SEC;
+  for (const e of entries.slice(1)) Buffer.from(e.data).copy(buf, off(e.start));
+  entries.forEach((e, idx) => {
+    const o = off(dirStart) + idx * 128;
+    buf.write(e.name, o, 'utf16le');
+    buf.writeUInt16LE((e.name.length + 1) * 2, o + 0x40);
+    buf[o + 0x42] = e.type;
+    buf.writeUInt32LE(0xffffffff, o + 0x44);
+    buf.writeUInt32LE(idx > 0 && idx + 1 < entries.length ? idx + 1 : 0xffffffff, o + 0x48); // цепочка через right
+    buf.writeUInt32LE(idx === 0 && entries.length > 1 ? 1 : 0xffffffff, o + 0x4c);
+    buf.writeUInt32LE(e.start, o + 0x74);
+    buf.writeUInt32LE(e.size, o + 0x78);
+  });
+  Buffer.from(fat.buffer).copy(buf, off(fatStart));
+  return new Uint8Array(buf);
+}
+
+test('.msg file (Outlook) is converted to a thread text', () => {
+  const u16 = (s) => new Uint8Array(Buffer.from(s + '\0', 'utf16le'));
+  const props = Buffer.alloc(32 + 16);
+  // PR_CLIENT_SUBMIT_TIME = 2025-09-22 10:15 UTC (FILETIME)
+  const ft = (BigInt(Date.UTC(2025, 8, 22, 10, 15)) + 11644473600000n) * 10000n;
+  props.writeUInt32LE(0x00390040, 32);
+  props.writeBigUInt64LE(ft, 40);
+  const body = 'Dear Sergei,\r\nThe sensor is shipped.\r\n\r\nFrom: Sergei Zakharov <zsa@inpren.ru>\r\nSent: Sunday, September 21, 2025 9:00 AM\r\nTo: Cui\r\nSubject: Sensor\r\n\r\nDear Cui,\r\nPlease send the sensor.' + ' '.repeat(600);
+  const msg = buildMsg({
+    '__substg1.0_0037001F': u16('RE: Sensor'),
+    '__substg1.0_0C1A001F': u16('Cui'),
+    '__substg1.0_5D01001F': u16('cui@haier.com'),
+    '__substg1.0_0E04001F': u16('Sergei Zakharov'),
+    '__substg1.0_1000001F': u16(body),
+    '__properties_version1.0': new Uint8Array(props)
+  });
+  const mail = MailFile.parseMsg(msg);
+  assert.equal(mail.subject, 'RE: Sensor');
+  assert.equal(mail.fromName, 'Cui');
+  assert.equal(mail.fromEmail, 'cui@haier.com');
+  assert.equal(mail.date.toISOString(), '2025-09-22T10:15:00.000Z');
+  const msgs = parseThread(MailFile.fileToText('x.msg', msg));
+  assert.equal(msgs.length, 2);
+  assert.equal(msgs[0].name, 'Cui');
+  assert.deepEqual(msgs[0].lines, ['Dear Sergei,', 'The sensor is shipped.']);
+  assert.equal(msgs[1].name, 'Sergei Zakharov');
+  assert.deepEqual(msgs[1].lines, ['Dear Cui,', 'Please send the sensor.']);
+});

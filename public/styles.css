@@ -60,6 +60,24 @@ button.primary {
 button.primary:hover { background: var(--accent-hover); }
 button.ghost { background: transparent; }
 
+.dropzone {
+  margin-top: 14px;
+  padding: 22px 16px;
+  border: 2px dashed #9aa3ad;
+  border-radius: 10px;
+  background: #f8f9fb;
+  text-align: center;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  transition: background .15s, border-color .15s;
+}
+.dropzone strong { font-size: 16px; color: var(--accent); }
+.dropzone span { color: var(--muted); font-size: 14px; }
+.dropzone:hover, .dropzone:focus-visible { border-color: var(--accent); outline: none; }
+.dropzone.over { background: #e8ebff; border-color: var(--accent); border-style: solid; }
+
 .option { display: inline-flex; align-items: center; gap: 6px; margin-top: 12px; cursor: pointer; user-select: none; }
 
 details { margin-top: 12px; }

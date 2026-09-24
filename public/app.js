@@ -22,7 +22,7 @@
   const $ = (id) => document.getElementById(id);
   const els = {
     paste: $('pasteBtn'), process: $('processBtn'), copy: $('copyBtn'), clear: $('clearBtn'),
-    stripSig: $('stripSig'), last2: $('last2Btn'), source: $('source'), sourceBox: $('sourceBox'),
+    stripSig: $('stripSig'), last2: $('last2Btn'), drop: $('dropZone'), file: $('fileInput'), source: $('source'), sourceBox: $('sourceBox'),
     status: $('status'), legend: $('legend'), result: $('result')
   };
 
@@ -65,36 +65,36 @@
     return configPromise;
   }
 
-  async function translateViaServer(texts) {
+  async function translateViaServer(texts, target) {
     const res = await fetch('api/translate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ texts, target: 'ru' })
+      body: JSON.stringify({ texts, target })
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || 'Ошибка сервера ' + res.status);
     return data.translations;
   }
 
-  async function translateInBrowser(texts) {
+  async function translateInBrowser(texts, target) {
     const fetchJson = async (url) => {
       const r = await fetch(url);
       if (!r.ok) throw new Error('Google Translate ответил ' + r.status);
       return r.json();
     };
     const out = [];
-    for (const t of texts) out.push(await translateText(t, 'ru', fetchJson));
+    for (const t of texts) out.push(await translateText(t, target, fetchJson));
     return out;
   }
 
-  async function translateAll(texts) {
+  async function translateAll(texts, target) {
     if (!texts.length) return [];
     const cfg = await getConfig();
-    if (cfg.serverKey) return translateViaServer(texts);
+    if (cfg.serverKey) return translateViaServer(texts, target);
     try {
-      return await translateInBrowser(texts);
+      return await translateInBrowser(texts, target);
     } catch (e) {
-      return translateViaServer(texts);
+      return translateViaServer(texts, target);
     }
   }
 
@@ -103,13 +103,15 @@
     return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   }
 
-  function headerHtml(msg, dateText, isRu) {
+  // lang: '' — оригинал, 'ru' или 'en' — колонка перевода
+  function headerHtml(msg, dateText, lang) {
+    const isRu = lang === 'ru';
     if (msg.unknown) {
       return '<i>' + (isRu ? 'Отправитель не определён' : 'Sender not specified') + '</i>';
     }
     const parts = [];
     let who = msg.name || msg.email || (isRu ? 'Отправитель не определён' : 'Unknown sender');
-    if (isRu && msg.name) who = applyGlossary(who);
+    if (lang && msg.name) who = applyGlossary(who, lang);
     let line = '<b>' + esc(who) + '</b>';
     parts.push(line);
     if (dateText) parts.push(esc(dateText));
@@ -132,9 +134,9 @@
     const rows = messages.map((msg, i) => {
       const color = colorFor(msg, colorMap);
       const tr = translations ? translations[i] : null;
-      const leftHeader = headerHtml(msg, msg.dateRaw || formatDateRu(msg.date), false);
+      const leftHeader = headerHtml(msg, msg.dateRaw || formatDateRu(msg.date), '');
       const ruDate = msg.date ? formatDateRu(msg.date) : (tr && tr.date) || msg.dateRaw;
-      const rightHeader = headerHtml(msg, ruDate, true);
+      const rightHeader = headerHtml(msg, ruDate, msg.target);
       let rightBody;
       if (!tr) rightBody = '<span class="pending">Перевод…</span>';
       else if (tr.error) rightBody = '<span style="color:#b3261e">' + esc(tr.error) + '</span>';
@@ -216,6 +218,10 @@
     }
     const all = parseThread(text, { stripSignatures: els.stripSig.checked }).filter((m) => m.lines.length || !m.unknown);
     const messages = pickLatest(all, onlyLast);
+    for (const msg of messages) {
+      const body = msg.lines.join('\n');
+      msg.target = body && isMostlyRussian(body) ? 'en' : 'ru';
+    }
     if (!messages.length) {
       setStatus('Не удалось найти письма в тексте.', true);
       return;
@@ -229,31 +235,40 @@
     setStatus(summary + ' Перевожу…');
     render();
 
-    // Собираем тексты для перевода (русские тексты не переводим)
-    // Имена и фамилии участников переписки не переводим — заменяем их метками
+    // Русские письма переводим на английский, остальные — на русский.
+    // Имена и фамилии не переводим (при переводе на русский) — заменяем их метками.
     const names = collectNames(all.flatMap((m) => [m, ...(m.recipients || [])]));
-    const texts = [];
+    const queues = { ru: [], en: [] };
     const jobs = messages.map((msg) => {
-      const job = { body: -1, date: -1, names: [] };
+      const job = { body: -1, date: null, names: [] };
       const body = msg.lines.join('\n');
-      if (body && !isMostlyRussian(body)) {
-        const prot = protectNames(body, names);
-        job.names = prot.names;
-        job.body = texts.push(prot.text) - 1;
+      if (body) {
+        let text = body;
+        if (msg.target === 'ru') {
+          const prot = protectNames(body, names);
+          job.names = prot.names;
+          text = prot.text;
+        }
+        job.body = queues[msg.target].push(text) - 1;
       }
-      if (!msg.date && msg.dateRaw && !isMostlyRussian(msg.dateRaw)) job.date = texts.push(msg.dateRaw) - 1;
+      if (!msg.date && msg.dateRaw) {
+        const t = isMostlyRussian(msg.dateRaw) ? 'en' : 'ru';
+        job.date = { target: t, idx: queues[t].push(msg.dateRaw) - 1 };
+      }
       return job;
     });
 
     try {
-      const out = await translateAll(texts);
+      const [outRu, outEn] = await Promise.all([translateAll(queues.ru, 'ru'), translateAll(queues.en, 'en')]);
       if (id !== runId) return;
+      const out = { ru: outRu, en: outEn };
       current.translations = messages.map((msg, i) => {
         const job = jobs[i];
         const lines = job.body >= 0
-          ? restoreNames(out[job.body], job.names).split('\n').map((l) => applyGlossary(l.trim())).filter(Boolean)
-          : msg.lines.map(applyGlossary);
-        return { lines, date: job.date >= 0 ? out[job.date].trim() : '' };
+          ? restoreNames(out[msg.target][job.body], job.names).split('\n')
+            .map((l) => applyGlossary(l.trim(), msg.target)).filter(Boolean)
+          : [];
+        return { lines, date: job.date ? out[job.date.target][job.date.idx].trim() : '' };
       });
       setStatus(summary + ' Перевод готов.');
     } catch (e) {
@@ -297,10 +312,10 @@
     const out = [BANNER_LINES.join('\n'), ''];
     current.messages.forEach((msg, i) => {
       const tr = current.translations && current.translations[i];
-      const head = (d, ru) => ((ru && msg.name ? applyGlossary(msg.name) : msg.name) || msg.email || 'Отправитель не определён') +
+      const head = (d, lang) => ((lang && msg.name ? applyGlossary(msg.name, lang) : msg.name) || msg.email || 'Отправитель не определён') +
         (d ? ', ' + d : '');
       out.push(head(msg.dateRaw), ...msg.lines, '');
-      if (tr && tr.lines) out.push(head(msg.date ? formatDateRu(msg.date) : tr.date || msg.dateRaw, true), ...tr.lines, '');
+      if (tr && tr.lines) out.push(head(msg.date ? formatDateRu(msg.date) : tr.date || msg.dateRaw, msg.target), ...tr.lines, '');
     });
     return out.join('\n');
   }
@@ -331,6 +346,59 @@
     }
     setStatus('Результат скопирован — его можно вставить в письмо с сохранением цветов.');
   }
+
+  // ---------- Перетаскивание письма из Outlook ----------
+  async function filesToText(files) {
+    const parts = [];
+    for (const f of files) {
+      const bytes = new Uint8Array(await f.arrayBuffer());
+      parts.push(window.MailFile.fileToText(f.name, bytes));
+    }
+    return parts.join('\n\n');
+  }
+
+  async function handleDrop(dt) {
+    try {
+      let text = '';
+      if (dt.files && dt.files.length) {
+        text = await filesToText([...dt.files]);
+      } else {
+        text = dt.getData('text/plain');
+        if (!text.trim()) {
+          const html = dt.getData('text/html');
+          if (html) text = window.MailFile.htmlToText(html);
+        }
+      }
+      if (!text.trim()) {
+        setStatus('Не удалось получить письмо. Сохраните его в Outlook как файл (.msg) и перетащите файл сюда, либо скопируйте текст (Ctrl+A, Ctrl+C).', true);
+        return;
+      }
+      els.source.value = text;
+      onlyLast = 0;
+      processText();
+    } catch (e) {
+      setStatus('Не удалось прочитать письмо: ' + e.message, true);
+    }
+  }
+
+  let dragDepth = 0;
+  window.addEventListener('dragenter', (e) => { e.preventDefault(); dragDepth++; els.drop.classList.add('over'); });
+  window.addEventListener('dragleave', () => { if (--dragDepth <= 0) { dragDepth = 0; els.drop.classList.remove('over'); } });
+  window.addEventListener('dragover', (e) => { e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'; });
+  window.addEventListener('drop', (e) => {
+    // Письмо можно бросить в любое место страницы
+    e.preventDefault();
+    dragDepth = 0;
+    els.drop.classList.remove('over');
+    handleDrop(e.dataTransfer);
+  });
+  els.drop.addEventListener('click', () => els.file.click());
+  els.drop.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); els.file.click(); } });
+  els.file.addEventListener('change', async () => {
+    if (!els.file.files.length) return;
+    await handleDrop({ files: els.file.files });
+    els.file.value = '';
+  });
 
   els.paste.addEventListener('click', pasteFromClipboard);
   els.process.addEventListener('click', () => { onlyLast = 0; processText(); });

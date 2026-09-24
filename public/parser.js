@@ -389,8 +389,22 @@
     return out;
   }
 
+  // --- Фразы, которые не включаются в изложение переписки ---
+  const LINK = String.raw`(?:\s*[-–—:]?\s*\[?(?:https?:\/\/)?(?:www\.)?awt\.ru\/?\]?(?:\s*(?:<|\()\s*(?:mailto:)?https?:\/\/[^\s>)]*\s*(?:>|\)))?)?`;
+  const EXCLUDED_PHRASES = [
+    // "Напоминаем, каждый клиент нашей компании имеет личный кабинет с технической
+    //  и сервисной документацией на нашем сайте www.awt.ru"
+    new RegExp(String.raw`Напоминаем,?\s+каждый\s+клиент\s+нашей\s+компании\s+имеет\s+личный\s+кабинет\s+с\s+технической\s+и\s+сервисной\s+документацией(?:\s+на\s+нашем\s+сайте)?` + LINK + String.raw`\.?`, 'gi')
+  ];
+
+  function stripExcludedPhrases(lines) {
+    let text = lines.join('\n');
+    for (const re of EXCLUDED_PHRASES) text = text.replace(re, '');
+    return text.split('\n');
+  }
+
   function cleanBody(lines, opts) {
-    const out = stripDisclaimers(lines)
+    const out = stripDisclaimers(stripExcludedPhrases(lines))
       .map((l) => l.replace(/\t/g, '    ').replace(/\s+$/, ''))
       .filter((l) => !isBlank(l) && !isNoise(l))
       .map((l) => l.trim());
@@ -583,5 +597,5 @@
     return s;
   }
 
-  return { parseThread, stripSignature, stripDisclaimers, parseRecipients, parseDate, parseSender, formatDateRu, normalize };
+  return { parseThread, stripExcludedPhrases, stripSignature, stripDisclaimers, parseRecipients, parseDate, parseSender, formatDateRu, normalize };
 });

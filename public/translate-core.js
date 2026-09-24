@@ -112,13 +112,22 @@
     return String(text).replace(/QZX\s*(\d+)\s*Z/gi, (m, i) => (names[+i] !== undefined ? names[+i] : m));
   }
 
-  function applyGlossary(text) {
+  // Для перевода с русского на английский: как писать имя по-английски
+  const GLOSSARY_EN = [
+    [/(?<![A-Za-z])Serge[yi]\s+(?:Alexandrovich\s+)?Zak?harov(?![A-Za-z])/g, 'Sergei Zakharov'],
+    [/(?<![A-Za-z])Zak?harov\s+Serge[yi](?![A-Za-z])/g, 'Zakharov Sergei'],
+    [/(?<![А-Яа-яЁё])Сергей\s+Захаров(?![А-Яа-яЁё])/g, 'Sergei Zakharov'],
+    [/(?<![А-Яа-яЁё])Захаров\s+Сергей(?![А-Яа-яЁё])/g, 'Zakharov Sergei']
+  ];
+
+  /** Правка перевода по словарю; target — язык перевода ('ru' или 'en') */
+  function applyGlossary(text, target) {
     let s = String(text);
-    for (const [re, to] of GLOSSARY) s = s.replace(re, to);
+    for (const [re, to] of (target === 'en' ? GLOSSARY_EN : GLOSSARY)) s = s.replace(re, to);
     return s;
   }
 
-  // Текст уже на русском — переводить не нужно
+  // Текст на русском — переводится на английский
   function isMostlyRussian(text) {
     const letters = String(text).match(/\p{L}/gu) || [];
     if (!letters.length) return true;
