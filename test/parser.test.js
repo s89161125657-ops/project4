@@ -218,8 +218,12 @@ test('signature variants', () => {
   assert.deepEqual(stripSignature(body2), body2);
 });
 
-test('glossary: Cui -> Цуи', () => {
+test('glossary: Cui -> Цуи, Sergei Zakharov -> Сергей Захаров', () => {
   assert.equal(applyGlossary('Cui'), 'Цуи');
   assert.equal(applyGlossary('Господин Цуй сказал, что Цую отправили счёт.'), 'Господин Цуи сказал, что Цуи отправили счёт.');
   assert.equal(applyGlossary('Cuisine и Цуйка'), 'Cuisine и Цуйка');
+  assert.equal(applyGlossary('Sergei Zakharov'), 'Сергей Захаров');
+  assert.equal(applyGlossary('Zakharov Sergei'), 'Захаров Сергей');
+  assert.equal(applyGlossary('Уважаемый Sergei, г-н Закаров и Сергеи Захаров'), 'Уважаемый Сергей, г-н Захаров и Сергей Захаров');
+  assert.equal(applyGlossary('Sergeiev Zakharova'), 'Sergeiev Zakharova');
 });
