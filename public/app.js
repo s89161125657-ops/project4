@@ -2,7 +2,7 @@
   'use strict';
 
   const { parseThread, formatDateRu } = window.MailParser;
-  const { translateText, isMostlyRussian } = window.TranslateCore;
+  const { translateText, isMostlyRussian, applyGlossary } = window.TranslateCore;
 
   const HEADER_GREEN = '#006400';
   const NAVY = '#000080';
@@ -22,7 +22,7 @@
   const $ = (id) => document.getElementById(id);
   const els = {
     paste: $('pasteBtn'), process: $('processBtn'), copy: $('copyBtn'), clear: $('clearBtn'),
-    sample: $('sampleBtn'), source: $('source'), sourceBox: $('sourceBox'),
+    sample: $('sampleBtn'), stripSig: $('stripSig'), source: $('source'), sourceBox: $('sourceBox'),
     status: $('status'), legend: $('legend'), result: $('result')
   };
 
@@ -108,7 +108,8 @@
       return '<i>' + (isRu ? 'Отправитель не определён' : 'Sender not specified') + '</i>';
     }
     const parts = [];
-    const who = msg.name || msg.email || (isRu ? 'Отправитель не определён' : 'Unknown sender');
+    let who = msg.name || msg.email || (isRu ? 'Отправитель не определён' : 'Unknown sender');
+    if (isRu && msg.name) who = applyGlossary(who);
     let line = '<b>' + esc(who) + '</b>';
     if (msg.email && msg.name) line += ' (' + esc(msg.email) + ')';
     parts.push(line);
@@ -195,7 +196,7 @@
       setStatus('Нет текста для обработки.', true);
       return;
     }
-    const messages = parseThread(text).filter((m) => m.lines.length || !m.unknown);
+    const messages = parseThread(text, { stripSignatures: els.stripSig.checked }).filter((m) => m.lines.length || !m.unknown);
     if (!messages.length) {
       setStatus('Не удалось найти письма в тексте.', true);
       return;
@@ -223,8 +224,8 @@
       current.translations = messages.map((msg, i) => {
         const job = jobs[i];
         const lines = job.body >= 0
-          ? out[job.body].split('\n').map((l) => l.trim()).filter(Boolean)
-          : msg.lines;
+          ? out[job.body].split('\n').map((l) => applyGlossary(l.trim())).filter(Boolean)
+          : msg.lines.map(applyGlossary);
         return { lines, date: job.date >= 0 ? out[job.date].trim() : '' };
       });
       setStatus(summary + ' Перевод готов.');
@@ -257,10 +258,10 @@
     const out = [BANNER_LINES.join('\n'), ''];
     current.messages.forEach((msg, i) => {
       const tr = current.translations && current.translations[i];
-      const head = (d) => (msg.name || msg.email || 'Отправитель не определён') +
+      const head = (d, ru) => ((ru && msg.name ? applyGlossary(msg.name) : msg.name) || msg.email || 'Отправитель не определён') +
         (msg.name && msg.email ? ' (' + msg.email + ')' : '') + (d ? ', ' + d : '');
       out.push(head(msg.dateRaw), ...msg.lines, '');
-      if (tr && tr.lines) out.push(head(msg.date ? formatDateRu(msg.date) : tr.date || msg.dateRaw), ...tr.lines, '');
+      if (tr && tr.lines) out.push(head(msg.date ? formatDateRu(msg.date) : tr.date || msg.dateRaw, true), ...tr.lines, '');
     });
     return out.join('\n');
   }
@@ -347,5 +348,6 @@
     els.sourceBox.open = true;
     processText();
   });
+  els.stripSig.addEventListener('change', () => { if (els.source.value.trim()) processText(); });
   els.source.addEventListener('paste', () => setTimeout(processText, 0));
 })();

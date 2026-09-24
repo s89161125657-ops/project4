@@ -60,6 +60,8 @@ button.primary {
 button.primary:hover { background: var(--accent-hover); }
 button.ghost { background: transparent; }
 
+.option { display: inline-flex; align-items: center; gap: 6px; margin-top: 12px; cursor: pointer; user-select: none; }
+
 details { margin-top: 12px; }
 summary { cursor: pointer; color: var(--muted); user-select: none; }
 textarea {

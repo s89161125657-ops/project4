@@ -248,11 +248,76 @@
     return { name, email };
   }
 
-  function cleanBody(lines) {
-    return lines
+  // --- Подписи в конце письма ---
+  // Строка-прощание, с которой начинается подпись ("Best regards", "С уважением" ...)
+  const CLOSING_RE = new RegExp('^(?:' + [
+    '(?:thanks?(?: you)?\\s*(?:&|and|,)?\\s*)?(?:(?:best|kind|kindest|warm|warmest|many|with (?:best|kind|warm))\\s+)?regards',
+    '(?:br|b\\.r\\.|rgds|best(?: wishes)?|cheers)(?=\\s*[,.!]|\\s*$)', 'sincerely(?: yours)?', 'yours (?:sincerely|faithfully|truly)',
+    'с уважением', 'с наилучшими пожеланиями', 'всего (?:доброго|наилучшего)', 'искренне ваш',
+    '此致', '此致敬礼', '祝好', '顺祝商祺', '顺颂商祺', '祝商祺', '谢谢[！!]?\\s*此致',
+    'mit freundlichen grüßen', 'viele grüße', 'beste grüße', 'cordialement', 'saludos(?: cordiales)?', 'atentamente', 'distinti saluti'
+  ].join('|') + ')(?![A-Za-zА-Яа-яЁё])[\\s,.!:;，。！]*', 'i');
+
+  // Строки с контактами: телефон, e-mail, сайт, адрес, компания
+  const CONTACT_RE = new RegExp([
+    '(?:tel|phone|mobile|mob|cell|fax|whatsapp|wechat|skype|e-?mail|web(?:site)?|add(?:ress)?|тел|моб|факс|адрес|почта|сайт|电话|手机|传真|邮箱|地址|网址)\\.?\\s*(?:phone)?\\s*[:：.]',
+    '\\+?\\d[\\d\\s()\\-]{7,}\\d',
+    '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}',
+    '(?:https?://|www\\.)\\S+',
+    '\\bco\\.?,?\\s*ltd\\b', '\\b(?:llc|inc|gmbh|corp|corporation|limited)\\b', '(?:^|\\s)(?:ооо|оао|зао|ао|пао)\\s', '有限公司',
+    '\\b(?:road|street|avenue|district|zone|province|p\\.?\\s?r\\.?\\s?china)\\b', '(?:ул\\.|улица|проспект|г\\.\\s)'
+  ].join('|'), 'i');
+
+  const TITLE_RE = /\b(?:manager|engineer|director|specialist|assistant|sales|service|support|president|officer|coordinator|head of|representative)\b|менеджер|инженер|директор|специалист|руководитель|经理|工程师|总监/i;
+
+  // Короткая строка из слов с заглавной буквы (имя, должность, отдел) или с контактами
+  function isSignatureLike(line) {
+    if (CONTACT_RE.test(line) || TITLE_RE.test(line)) return true;
+    if (line.length > 40 || /[.?!。？！:]\s*$/.test(line)) return false;
+    const words = line.split(/\s+/);
+    return words.length <= 5 && words.every((w) =>
+      /^(?:of|and|&|и|de|van|von)$/i.test(w) || !/^[a-zа-яё]/.test(w));
+  }
+
+  function stripSignature(lines) {
+    // 1) Разделитель подписи "--"
+    const dash = lines.findIndex((l) => /^--\s*$/.test(l));
+    if (dash >= 0) lines = lines.slice(0, dash);
+
+    // 2) Последнее прощание, после которого идёт только подпись
+    for (let i = lines.length - 1; i >= 0; i--) {
+      if (lines.length - i > 25) break;
+      if (lines[i].length <= 80 && CLOSING_RE.test(lines[i])) {
+        const rest = lines.slice(i + 1);
+        const nameOnSameLine = lines[i].replace(CLOSING_RE, '');
+        if (rest.every(isSignatureLike) && (!nameOnSameLine || isSignatureLike(nameOnSameLine))) {
+          return lines.slice(0, i);
+        }
+        break;
+      }
+    }
+
+    // 3) Блок контактов в конце письма без прощания
+    let start = lines.length;
+    let contacts = 0;
+    while (start > 0 && isSignatureLike(lines[start - 1])) {
+      start--;
+      if (CONTACT_RE.test(lines[start])) contacts++;
+    }
+    if (contacts > 0 && start > 0) {
+      // Убираем и строку благодарности прямо перед подписью
+      if (/^(?:thanks?(?: you)?(?: very much)?|thx|спасибо(?: большое)?|谢谢|感谢)[\s,.!！，。]*$/i.test(lines[start - 1])) start--;
+      return lines.slice(0, start);
+    }
+    return lines;
+  }
+
+  function cleanBody(lines, opts) {
+    const out = lines
       .map((l) => l.replace(/\t/g, '    ').replace(/\s+$/, ''))
       .filter((l) => !isBlank(l) && !isNoise(l))
       .map((l) => l.trim());
+    return opts && opts.stripSignatures === false ? out : stripSignature(out);
   }
 
   function findMarker(lines, i) {
@@ -262,8 +327,9 @@
   /**
    * Разбирает переписку. Возвращает массив писем в порядке следования в тексте:
    * { name, email, dateRaw, date: {y,m,d,hh,mm}|null, lines: [..], unknown }
+   * opts.stripSignatures === false — не убирать подписи в конце писем.
    */
-  function parseThread(text) {
+  function parseThread(text, opts) {
     const lines = normalize(text);
     const markers = [];
     for (let i = 0; i < lines.length; i++) {
@@ -277,7 +343,7 @@
 
     const messages = [];
     const firstStart = markers.length ? markers[0].start : lines.length;
-    const preface = cleanBody(lines.slice(0, firstStart));
+    const preface = cleanBody(lines.slice(0, firstStart), opts);
     if (preface.length) {
       messages.push({ name: '', email: '', dateRaw: '', lines: preface, unknown: true });
     }
@@ -287,7 +353,7 @@
         name: m.sender.name,
         email: m.sender.email,
         dateRaw: m.dateRaw,
-        lines: cleanBody(lines.slice(m.end, end)),
+        lines: cleanBody(lines.slice(m.end, end), opts),
         unknown: false
       });
     });
@@ -387,5 +453,5 @@
     return s;
   }
 
-  return { parseThread, parseDate, parseSender, formatDateRu, normalize };
+  return { parseThread, stripSignature, parseDate, parseSender, formatDateRu, normalize };
 });

@@ -131,9 +131,11 @@ test('signature with phone is not a header; body "From:" is not a header', () =>
     'Li Wei <liwei@haiermed.com>',
     'Tel: +86 532 123-45-67'
   ].join('\n');
-  const msgs = parseThread(text);
+  const msgs = parseThread(text, { stripSignatures: false });
   assert.equal(msgs.length, 1);
   assert.equal(msgs[0].lines.length, 4);
+  // по умолчанию подпись (имя + телефон) убирается
+  assert.deepEqual(parseThread(text)[0].lines, ['From: Moscow to Beijing', 'To: be continued']);
 });
 
 test('one-line header and name lookup by email', () => {
@@ -168,4 +170,56 @@ test('translate-core helpers', () => {
   assert.equal(isMostlyRussian('Привет, как дела? OK'), true);
   assert.equal(isMostlyRussian('Hello there'), false);
   assert.equal(parseGtx([[['Привет. ', 'Hello. '], ['Мир', 'World']]]), 'Привет. Мир');
+});
+
+const { stripSignature } = require('../public/parser');
+const { applyGlossary } = require('../public/translate-core');
+
+const CUI_SIGNATURE = [
+  'Best regards',
+  '崔保振',
+  'Cui',
+  'Service Manager',
+  'Mobile Phone: +86 13402261534',
+  'Qingdao Haier Biomedical Co.,Ltd.',
+  'No.280 Fengyuan Road, High-tech Zone, Qingdao(266111), P.R.China'
+];
+
+test('signature after "Best regards" is removed', () => {
+  const text = [
+    'From: 崔保振 Cui <cuibaozhen@haierbiomedical.com>',
+    'Sent: Monday, September 22, 2025 10:15 AM',
+    'To: zsa@inpren.ru',
+    '',
+    'Dear Sergey,',
+    '',
+    'Please check the attached file.',
+    '',
+    ...CUI_SIGNATURE
+  ].join('\n');
+  const [m] = parseThread(text);
+  assert.deepEqual(m.lines, ['Dear Sergey,', 'Please check the attached file.']);
+  const [raw] = parseThread(text, { stripSignatures: false });
+  assert.equal(raw.lines.length, 2 + CUI_SIGNATURE.length);
+});
+
+test('signature variants', () => {
+  // Контакты без прощания
+  assert.deepEqual(stripSignature(['The unit is fixed.', 'Thanks', 'Cui', 'Service Manager', 'Mobile Phone: +86 13402261534']),
+    ['The unit is fixed.']);
+  // Прощание и имя в одной строке, русская подпись
+  assert.deepEqual(stripSignature(['Добрый день!', 'Высылаю счёт.', 'С уважением, Сергей Зайцев', 'Тел.: +7 495 123-45-67']),
+    ['Добрый день!', 'Высылаю счёт.']);
+  assert.deepEqual(stripSignature(['Hello', 'See below.', '--', 'John', 'www.example.com']), ['Hello', 'See below.']);
+  // Обычный текст не трогаем
+  const body = ['Best price is 100 USD.', 'Please check the attached file', 'Li Wei'];
+  assert.deepEqual(stripSignature(body), body);
+  const body2 = ['Regards the delivery, we will ship it on Monday.', 'Thank you.'];
+  assert.deepEqual(stripSignature(body2), body2);
+});
+
+test('glossary: Cui -> Цуи', () => {
+  assert.equal(applyGlossary('Cui'), 'Цуи');
+  assert.equal(applyGlossary('Господин Цуй сказал, что Цую отправили счёт.'), 'Господин Цуи сказал, что Цуи отправили счёт.');
+  assert.equal(applyGlossary('Cuisine и Цуйка'), 'Cuisine и Цуйка');
 });

@@ -54,6 +54,20 @@
     return data[0].map((seg) => (Array.isArray(seg) && typeof seg[0] === 'string' ? seg[0] : '')).join('');
   }
 
+  // Словарь: как передавать по-русски отдельные имена и термины.
+  // Применяется к русской колонке после перевода (в т.ч. к именам отправителей).
+  const GLOSSARY = [
+    // Cui -> Цуи (и варианты Google Translate: Цуй, Цуя, Цую, Цуем, Цуе)
+    [/(?<![A-Za-z])Cui(?![A-Za-z])/g, 'Цуи'],
+    [/(?<![А-Яа-яЁё])Цу(?:й|я|ю|ем|е)(?![А-Яа-яЁё])/g, 'Цуи']
+  ];
+
+  function applyGlossary(text) {
+    let s = String(text);
+    for (const [re, to] of GLOSSARY) s = s.replace(re, to);
+    return s;
+  }
+
   // Текст уже на русском — переводить не нужно
   function isMostlyRussian(text) {
     const letters = String(text).match(/\p{L}/gu) || [];
@@ -76,5 +90,5 @@
     return parts.join('\n');
   }
 
-  return { splitChunks, translateText, parseGtx, isMostlyRussian, MAX_CHUNK };
+  return { splitChunks, translateText, applyGlossary, parseGtx, isMostlyRussian, MAX_CHUNK };
 });
