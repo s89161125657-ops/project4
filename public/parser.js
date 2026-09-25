@@ -672,6 +672,21 @@
     return 'UTC' + (h >= 0 ? '+' : '') + (Number.isInteger(h) ? h : h.toFixed(1));
   }
 
+  const MOSCOW_TZ = 180;
+
+  /**
+   * Дата и время письма, пересчитанные на московское время (UTC+3): "24.09.2026 12:30".
+   * Если время не известно — null.
+   */
+  function formatMoscow(date, localTz) {
+    if (!date || date.hh === null || date.hh === undefined) return null;
+    const local = localTz !== undefined ? localTz : -new Date().getTimezoneOffset();
+    const tz = date.tz !== undefined ? date.tz : local;
+    const t = new Date(Date.UTC(date.y, date.m - 1, date.d, date.hh, date.mm) + (MOSCOW_TZ - tz) * 60000);
+    return pad(t.getUTCDate()) + '.' + pad(t.getUTCMonth() + 1) + '.' + t.getUTCFullYear() + ' ' +
+      t.getUTCHours() + ':' + pad(t.getUTCMinutes());
+  }
+
   // Ночь — с 23:00 до 7:00 по местному времени (tz — смещение от UTC в минутах)
   const NIGHT_START = 23;
   const NIGHT_END = 7;
@@ -714,5 +729,5 @@
     return s;
   }
 
-  return { IMAGE_MARKER_SRC, tzLabel, formatElapsed, elapsedBetween, includesNight, parseThread, stripExcludedPhrases, stripSignature, stripDisclaimers, parseRecipients, parseDate, parseSender, formatDateRu, normalize };
+  return { IMAGE_MARKER_SRC, tzLabel, formatMoscow, formatElapsed, elapsedBetween, includesNight, parseThread, stripExcludedPhrases, stripSignature, stripDisclaimers, parseRecipients, parseDate, parseSender, formatDateRu, normalize };
 });

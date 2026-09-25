@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  const { parseThread, formatDateRu, elapsedBetween, tzLabel, IMAGE_MARKER_SRC } = window.MailParser;
+  const { parseThread, formatDateRu, elapsedBetween, formatMoscow, IMAGE_MARKER_SRC } = window.MailParser;
   const { translateText, isMostlyRussian, applyGlossary, collectNames, protectNames, restoreNames,
     protectImages, restoreImages } = window.TranslateCore;
 
@@ -124,13 +124,20 @@
     if (lang && msg.name) who = applyGlossary(who, lang);
     let line = '<b>' + esc(who) + '</b>';
     parts.push(line);
-    if (dateText) {
-      // Часовой пояс: в колонке перевода — на языке перевода, в оригинале — на языке письма
-      const tzLang = lang || (msg.target === 'en' ? 'ru' : 'en');
-      const tz = tzLabel(msg.date, tzLang);
-      parts.push(esc(dateText) + (tz ? ' (' + esc(tz) + ')' : ''));
-    }
+    if (dateText) parts.push(esc(dateText));
     return parts.join(', ');
+  }
+
+  /**
+   * Дата для строки отправителя: всегда время по Москве с пометкой
+   * "(время по Москве)" / "(Moscow time)". lang: язык колонки ('' — оригинал).
+   */
+  function dateLine(msg, tr, lang) {
+    const labelLang = lang || (msg.target === 'en' ? 'ru' : 'en');
+    const moscow = formatMoscow(msg.date);
+    if (moscow) return moscow + (labelLang === 'ru' ? ' (время по Москве)' : ' (Moscow time)');
+    if (msg.date) return formatDateRu(msg.date); // дата без времени
+    return lang ? (tr && tr.date) || msg.dateRaw : msg.dateRaw;
   }
 
   // Светлая заливка цветом отправителя (для лучшего различения писем)
@@ -233,9 +240,8 @@
     const rows = messages.map((msg, i) => {
       const color = colorFor(msg, colorMap);
       const tr = translations ? translations[i] : null;
-      const leftHeader = headerHtml(msg, msg.dateRaw || formatDateRu(msg.date), '');
-      const ruDate = msg.dateDisplay || (msg.date ? formatDateRu(msg.date) : (tr && tr.date) || msg.dateRaw);
-      const rightHeader = headerHtml(msg, ruDate, msg.target);
+      const leftHeader = headerHtml(msg, dateLine(msg, tr, ''), '');
+      const rightHeader = headerHtml(msg, dateLine(msg, tr, msg.target), msg.target);
       let rightBody;
       if (!tr) rightBody = '<span class="pending">Перевод…</span>';
       else if (tr.error) rightBody = '<span style="color:#b3261e">' + esc(tr.error) + '</span>';
@@ -325,7 +331,6 @@
       me.name = ME.name;
       me.email = ME.email;
       me.dateRaw = formatStamp(pastedAt);
-      me.dateDisplay = me.dateRaw;
       me.date = { y: pastedAt.getFullYear(), m: pastedAt.getMonth() + 1, d: pastedAt.getDate(), hh: pastedAt.getHours(), mm: pastedAt.getMinutes() };
     }
     const messages = mode === 'paste' ? all.slice(0, 2) : all;
@@ -425,13 +430,13 @@
         out.push('--- Time between messages: ' + gap.en + (gap.night ? ' (including night)' : '') +
           ' / Между письмами прошло: ' + gap.ru + (gap.night ? ' (включая ночь)' : '') + ' ---', '');
       }
-      const head = (d, lang) => {
-        const tz = d ? tzLabel(msg.date, lang || (msg.target === 'en' ? 'ru' : 'en')) : '';
+      const head = (lang) => {
+        const d = dateLine(msg, tr, lang);
         return ((lang && msg.name ? applyGlossary(msg.name, lang) : msg.name) || msg.email || 'Отправитель не определён') +
-          (d ? ', ' + d + (tz ? ' (' + tz + ')' : '') : '');
+          (d ? ', ' + d : '');
       };
-      if (current.mode !== 'paste') out.push(head(msg.dateRaw), ...msg.lines, '');
-      if (tr && tr.lines) out.push(head(msg.dateDisplay || (msg.date ? formatDateRu(msg.date) : tr.date || msg.dateRaw), msg.target), ...tr.lines, '');
+      if (current.mode !== 'paste') out.push(head(''), ...msg.lines, '');
+      if (tr && tr.lines) out.push(head(msg.target), ...tr.lines, '');
     });
     return out.join('\n');
   }

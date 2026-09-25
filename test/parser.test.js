@@ -589,3 +589,18 @@ test('time zone label: Moscow / Beijing, explicit offsets', () => {
   assert.equal(tzLabel(m[3].date, 'en', 180), 'UTC+1');
   assert.equal(tzLabel({ y: 2026, m: 9, d: 1, hh: null, mm: null }, 'ru', 180), '');
 });
+
+test('sender line time is converted to Moscow time', () => {
+  const { formatMoscow } = require('../public/parser');
+  // Пекин 17:30 = Москва 12:30
+  assert.equal(formatMoscow({ y: 2026, m: 9, d: 24, hh: 17, mm: 30, tz: 480 }, 180), '24.09.2026 12:30');
+  // Пекин 5:21 = Москва 0:21
+  assert.equal(formatMoscow({ y: 2026, m: 9, d: 24, hh: 5, mm: 21, tz: 480 }, 180), '24.09.2026 0:21');
+  // Пекин 1:05 = Москва 20:05 предыдущего дня
+  assert.equal(formatMoscow({ y: 2026, m: 9, d: 17, hh: 1, mm: 5, tz: 480 }, 180), '16.09.2026 20:05');
+  // Время компьютера — Москва: без изменений
+  assert.equal(formatMoscow({ y: 2026, m: 9, d: 24, hh: 11, mm: 46 }, 180), '24.09.2026 11:46');
+  // Явный пояс +01:00 → +2 часа
+  assert.equal(formatMoscow({ y: 2026, m: 9, d: 22, hh: 10, mm: 30, tz: 60 }, 180), '22.09.2026 12:30');
+  assert.equal(formatMoscow({ y: 2026, m: 9, d: 22, hh: null, mm: null }, 180), null);
+});
