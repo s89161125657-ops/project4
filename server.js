@@ -5,6 +5,7 @@
  *  - раздаёт статические файлы из ./public
  *  - GET  /api/config     — сообщает клиенту, как переводить
  *  - POST /api/translate  — перевод массива текстов через Google Translate
+ *  - POST /api/mail/*     — чтение писем из почтового ящика по IMAP (кнопка «Почта»)
  *
  * Если задана переменная GOOGLE_TRANSLATE_API_KEY, используется официальный
  * Google Cloud Translation API v2, иначе — бесплатный публичный эндпоинт.
@@ -14,6 +15,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { translateText, splitChunks } = require('./public/translate-core');
+const mailApi = require('./lib/mail-api');
 
 const PORT = Number(process.env.PORT) || 3000;
 const API_KEY = process.env.GOOGLE_TRANSLATE_API_KEY || '';
@@ -125,6 +127,25 @@ async function handleTranslate(req, res) {
   }
 }
 
+const MAIL_ACTIONS = { '/api/mail/folders': mailApi.folders, '/api/mail/list': mailApi.list, '/api/mail/message': mailApi.message };
+
+async function handleMail(req, res, action) {
+  let payload;
+  try {
+    payload = JSON.parse(await readBody(req));
+  } catch (e) {
+    return sendJson(res, e.status || 400, { error: e.status ? e.message : 'Некорректный JSON' });
+  }
+  const ip = req.socket.remoteAddress || '';
+  try {
+    sendJson(res, 200, await action(payload || {}, ip));
+  } catch (e) {
+    const status = mailApi.errorStatus(e);
+    if (status >= 500) console.error('mail error:', e.message);
+    sendJson(res, status, { error: e.message });
+  }
+}
+
 function serveStatic(req, res) {
   let urlPath;
   try {
@@ -157,7 +178,8 @@ function serveStatic(req, res) {
 const server = http.createServer((req, res) => {
   const pathname = req.url.split('?')[0];
   if (pathname === '/api/translate' && req.method === 'POST') return void handleTranslate(req, res);
-  if (pathname === '/api/config' && req.method === 'GET') return sendJson(res, 200, { serverKey: Boolean(API_KEY) });
+  if (MAIL_ACTIONS[pathname] && req.method === 'POST') return void handleMail(req, res, MAIL_ACTIONS[pathname]);
+  if (pathname === '/api/config' && req.method === 'GET') return sendJson(res, 200, { serverKey: Boolean(API_KEY), mailHost: mailApi.mailConfig().host });
   if (pathname === '/healthz') return sendJson(res, 200, { ok: true });
   if (req.method === 'GET' || req.method === 'HEAD') return serveStatic(req, res);
   res.writeHead(405);

@@ -502,16 +502,18 @@
   }
 
   // ---------- Перетаскивание письма из Outlook ----------
+  // Разбор файла письма (.msg / .eml): картинки и вложения запоминаются, возвращается текст
+  function mailFileToText(name, bytes) {
+    const mail = window.MailFile.fileToMail(name, bytes);
+    registerImages(mail.images);
+    const atts = findAttachments(mail);
+    if (atts.length) dropAttachments.push({ email: (mail.fromEmail || '').toLowerCase(), name: mail.fromName, atts });
+    return mail.text;
+  }
+
   async function filesToText(files) {
     const parts = [];
-    for (const f of files) {
-      const bytes = new Uint8Array(await f.arrayBuffer());
-      const mail = window.MailFile.fileToMail(f.name, bytes);
-      registerImages(mail.images);
-      const atts = findAttachments(mail);
-      if (atts.length) dropAttachments.push({ email: (mail.fromEmail || '').toLowerCase(), name: mail.fromName, atts });
-      parts.push(mail.text);
-    }
+    for (const f of files) parts.push(mailFileToText(f.name, new Uint8Array(await f.arrayBuffer())));
     return parts.join('\n\n');
   }
 
@@ -565,6 +567,8 @@
   els.stripSig.addEventListener('change', () => { if (els.source.value.trim()) processText(); });
   // Ctrl+V в любом месте страницы — то же, что кнопка «Вставить из буфера обмена»
   document.addEventListener('paste', (e) => {
+    // Вставка в поля ввода (например, в окне «Почта») — обычная
+    if (e.target && e.target.closest && e.target.closest('input, select, dialog')) return;
     const text = e.clipboardData ? e.clipboardData.getData('text/plain') : '';
     if (!text.trim()) return;
     e.preventDefault();
@@ -573,5 +577,166 @@
     dropAttachments = [];
     els.source.value = text;
     processText();
+  });
+
+  // ---------- Почта (IMAP): письма прямо из почтового ящика ----------
+  const mailEls = {
+    btn: $('mailBtn'), dialog: $('mailDialog'), close: $('mailClose'), logout: $('mailLogout'), account: $('mailAccount'),
+    login: $('mailLogin'), user: $('mailUser'), password: $('mailPassword'), host: $('mailHost'),
+    browser: $('mailBrowser'), folder: $('mailFolder'), search: $('mailSearch'), refresh: $('mailRefresh'),
+    list: $('mailList'), more: $('mailMore'), status: $('mailStatus')
+  };
+  const MAIL_USER_KEY = 'mailThread.mailUser';
+  // Пароль хранится только в памяти страницы — до перезагрузки
+  let mailCreds = null;
+  let mailOldest = 0;
+  let mailRun = 0;
+
+  const FOLDER_NAMES = { inbox: 'Входящие', sent: 'Отправленные', 'sent items': 'Отправленные', 'sent messages': 'Отправленные',
+    drafts: 'Черновики', trash: 'Корзина', 'deleted items': 'Корзина', 'deleted messages': 'Корзина',
+    junk: 'Спам', spam: 'Спам', archive: 'Архив', outbox: 'Исходящие' };
+  const FOLDER_FLAGS = [['\\Sent', 'Отправленные'], ['\\Drafts', 'Черновики'], ['\\Trash', 'Корзина'], ['\\Junk', 'Спам'], ['\\Archive', 'Архив']];
+
+  function folderLabel(f) {
+    const parts = f.name.split(/[./]/);
+    const last = parts[parts.length - 1];
+    const known = FOLDER_NAMES[last.toLowerCase()] || (FOLDER_FLAGS.find(([flag]) => (f.flags || '').includes(flag)) || [])[1];
+    const prefix = parts.length > 1 && parts[0].toUpperCase() === 'INBOX' ? parts.slice(1, -1) : parts.slice(0, -1);
+    return prefix.concat(known || last).join(' / ');
+  }
+
+  function folderOrder(f) {
+    const label = folderLabel(f);
+    const i = ['Входящие', 'Отправленные', 'Черновики', 'Спам', 'Корзина'].indexOf(label);
+    return i < 0 ? 10 : i;
+  }
+
+  // ISO -> "25.09.2026 8:05" по Москве (UTC+3)
+  function moscowStamp(iso) {
+    if (!iso) return '';
+    const t = new Date(new Date(iso).getTime() + 180 * 60000);
+    return pad2(t.getUTCDate()) + '.' + pad2(t.getUTCMonth() + 1) + '.' + t.getUTCFullYear() + ' ' + t.getUTCHours() + ':' + pad2(t.getUTCMinutes());
+  }
+
+  function mailStatus(text, isError) {
+    mailEls.status.textContent = text || '';
+    mailEls.status.classList.toggle('error', Boolean(isError));
+  }
+
+  async function mailApi(action, params) {
+    const res = await fetch('api/mail/' + action, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(Object.assign({}, mailCreds, params))
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const err = new Error(data.error || 'Ошибка сервера ' + res.status);
+      err.status = res.status;
+      throw err;
+    }
+    return data;
+  }
+
+  function showMailLogin() {
+    mailCreds = null;
+    mailEls.login.hidden = false;
+    mailEls.browser.hidden = true;
+    mailEls.logout.hidden = true;
+    mailEls.account.textContent = '';
+    mailEls.password.value = '';
+    (mailEls.user.value ? mailEls.password : mailEls.user).focus();
+  }
+
+  async function openMail() {
+    if (!mailEls.dialog.open) mailEls.dialog.showModal();
+    getConfig().then((cfg) => { mailEls.host.textContent = cfg.mailHost || ''; });
+    if (!mailCreds) {
+      try { mailEls.user.value = mailEls.user.value || localStorage.getItem(MAIL_USER_KEY) || ''; } catch { /* недоступно */ }
+      showMailLogin();
+    }
+  }
+
+  async function mailLogin(e) {
+    e.preventDefault();
+    mailCreds = { user: mailEls.user.value.trim(), password: mailEls.password.value };
+    mailStatus('Вход…');
+    try {
+      const { folders } = await mailApi('folders');
+      try { localStorage.setItem(MAIL_USER_KEY, mailCreds.user); } catch { /* недоступно */ }
+      folders.sort((a, b) => folderOrder(a) - folderOrder(b));
+      mailEls.folder.innerHTML = folders.map((f) =>
+        '<option value="' + esc(f.path) + '">' + esc(folderLabel(f)) + '</option>').join('');
+      mailEls.login.hidden = true;
+      mailEls.browser.hidden = false;
+      mailEls.logout.hidden = false;
+      mailEls.account.textContent = mailCreds.user;
+      mailEls.password.value = '';
+      loadMailList(false);
+    } catch (err) {
+      mailCreds = null;
+      mailStatus(err.message, true);
+    }
+  }
+
+  function mailItemHtml(m) {
+    const from = m.fromName || m.fromEmail || '(без отправителя)';
+    return '<li><button type="button" class="mail-item" data-uid="' + m.uid + '">' +
+      '<span class="mail-from">' + esc(from) + '</span>' +
+      '<span class="mail-date">' + esc(moscowStamp(m.date)) + '</span>' +
+      '<span class="mail-subject">' + esc(m.subject || '(без темы)') + '</span></button></li>';
+  }
+
+  async function loadMailList(append) {
+    const id = ++mailRun;
+    if (!append) { mailEls.list.innerHTML = ''; mailOldest = 0; }
+    mailEls.more.hidden = true;
+    mailStatus('Загрузка списка писем…');
+    try {
+      const data = await mailApi('list', { folder: mailEls.folder.value, query: mailEls.search.value.trim(), before: append ? mailOldest : 0 });
+      if (id !== mailRun) return;
+      mailEls.list.insertAdjacentHTML('beforeend', data.messages.map(mailItemHtml).join(''));
+      if (data.messages.length) mailOldest = data.messages[data.messages.length - 1].uid;
+      mailEls.more.hidden = !data.more;
+      mailStatus(mailEls.list.children.length ? 'Щёлкните письмо, чтобы показать переписку (время — по Москве).' : 'Писем нет.');
+    } catch (err) {
+      if (id !== mailRun) return;
+      if (err.status === 401) showMailLogin();
+      mailStatus(err.message, true);
+    }
+  }
+
+  async function openMailMessage(uid) {
+    mailStatus('Загрузка письма…');
+    try {
+      const { raw } = await mailApi('message', { folder: mailEls.folder.value, uid });
+      const bin = atob(raw);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      imageStore.clear();
+      dropAttachments = [];
+      els.source.value = mailFileToText('message.eml', bytes);
+      mailStatus('');
+      mailEls.dialog.close();
+      setMode('drop');
+      processText();
+    } catch (err) {
+      if (err.status === 401) showMailLogin();
+      mailStatus('Не удалось открыть письмо: ' + err.message, true);
+    }
+  }
+
+  let searchTimer = 0;
+  mailEls.btn.addEventListener('click', openMail);
+  mailEls.close.addEventListener('click', () => mailEls.dialog.close());
+  mailEls.logout.addEventListener('click', () => { mailEls.list.innerHTML = ''; mailStatus(''); showMailLogin(); });
+  mailEls.login.addEventListener('submit', mailLogin);
+  mailEls.folder.addEventListener('change', () => loadMailList(false));
+  mailEls.refresh.addEventListener('click', () => loadMailList(false));
+  mailEls.more.addEventListener('click', () => loadMailList(true));
+  mailEls.search.addEventListener('input', () => { clearTimeout(searchTimer); searchTimer = setTimeout(() => loadMailList(false), 500); });
+  mailEls.list.addEventListener('click', (e) => {
+    const item = e.target.closest('.mail-item');
+    if (item) openMailMessage(Number(item.dataset.uid));
   });
 })();

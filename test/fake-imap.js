@@ -1,0 +1,191 @@
+'use strict';
+
+/*
+ * Имитатор почтового сервера IMAP для тестов (без TLS).
+ * Понимает ровно то, что использует lib/imap.js: LOGIN, LIST, EXAMINE, UID SEARCH, UID FETCH, LOGOUT.
+ * Запуск отдельно: node test/fake-imap.js 1143  (логин demo@example.com, пароль «пароль»)
+ */
+
+const net = require('net');
+
+const USER = 'demo@example.com';
+const PASSWORD = 'пароль';
+
+function b64(s) { return Buffer.from(s, 'utf8').toString('base64'); }
+
+// 1x1 PNG
+const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+
+function eml({ from, to, subject, date, body, attach }) {
+  const head = [
+    'From: ' + from,
+    'To: ' + to,
+    'Subject: =?UTF-8?B?' + b64(subject) + '?=',
+    'Date: ' + date,
+    'MIME-Version: 1.0'
+  ];
+  if (!attach) {
+    return head.concat(['Content-Type: text/plain; charset=utf-8', 'Content-Transfer-Encoding: base64', '', b64(body), '']).join('\r\n');
+  }
+  return head.concat([
+    'Content-Type: multipart/mixed; boundary="b1"', '',
+    '--b1', 'Content-Type: text/plain; charset=utf-8', 'Content-Transfer-Encoding: base64', '', b64(body),
+    '--b1', 'Content-Type: image/png; name="photo.png"', 'Content-Disposition: attachment; filename="photo.png"',
+    'Content-Transfer-Encoding: base64', '', PNG,
+    '--b1--', ''
+  ]).join('\r\n');
+}
+
+const MAILBOXES = {
+  INBOX: [
+    { uid: 11, idate: '24-Sep-2026 09:15:00 +0800', raw: eml({
+      from: 'Cui Wei <cui@haier-bio.example>', to: 'Sergei Zakharov <zsa@inpren.ru>',
+      subject: 'Board replacement', date: 'Thu, 24 Sep 2026 09:15:00 +0800',
+      body: 'Dear Sergei,\r\nWe will send the new board tomorrow.\r\n\r\nBest regards,\r\nCui Wei'
+    }) },
+    { uid: 12, idate: '24-Sep-2026 17:40:00 +0300', raw: eml({
+      from: '=?UTF-8?B?' + b64('Иван Петров') + '?= <petrov@example.ru>', to: 'zsa@inpren.ru',
+      subject: 'Счёт на оплату', date: 'Thu, 24 Sep 2026 17:40:00 +0300',
+      body: 'Сергей, добрый день!\r\nСчёт во вложении.', attach: true
+    }) },
+    { uid: 15, idate: '25-Sep-2026 08:05:00 +0300', raw: eml({
+      from: 'Sergei Zakharov <zsa@inpren.ru>', to: 'Cui Wei <cui@haier-bio.example>',
+      subject: 'RE: Board replacement', date: 'Fri, 25 Sep 2026 08:05:00 +0300',
+      body: 'Dear Cui,\r\nThank you, we are waiting for the board.\r\n\r\n' +
+        'From: Cui Wei <cui@haier-bio.example>\r\nSent: Thursday, September 24, 2026 9:15 AM\r\n' +
+        'To: Sergei Zakharov <zsa@inpren.ru>\r\nSubject: Board replacement\r\n\r\n' +
+        'Dear Sergei,\r\nWe will send the new board tomorrow.'
+    }) }
+  ],
+  Sent: [],
+  '&BCEEPwQwBDw-': [] // «Спам» в modified UTF-7
+};
+
+const FOLDERS = [
+  '* LIST (\\HasNoChildren) "." INBOX',
+  '* LIST (\\HasNoChildren \\Sent) "." "Sent"',
+  '* LIST (\\HasNoChildren \\Junk) "." "&BCEEPwQwBDw-"',
+  '* LIST (\\Noselect \\HasChildren) "." "Archive"'
+];
+
+/** Разбивает команду на слова: атомы, строки в кавычках, литералы (Buffer), списки в скобках — как текст */
+function tokenize(parts) {
+  const out = [];
+  for (const p of parts) {
+    if (Buffer.isBuffer(p)) { out.push(p.toString('utf8')); continue; }
+    const re = /"((?:[^"\\]|\\.)*)"|(\([^)]*\)(?:\])?|[^\s()]+(?:\[[^\]]*\])?(?:\([^)]*\))?)/g;
+    let m;
+    while ((m = re.exec(p))) out.push(m[1] !== undefined ? m[1].replace(/\\(.)/g, '$1') : m[2]);
+  }
+  return out;
+}
+
+function literal(buf) {
+  return Buffer.concat([Buffer.from('{' + buf.length + '}\r\n'), buf]);
+}
+
+function createServer() {
+  return net.createServer((sock) => {
+    let buf = Buffer.alloc(0);
+    let parts = [];
+    let need = 0;
+    let authed = false;
+    let box = null;
+    const log = [];
+    sock.write('* OK fake IMAP ready\r\n');
+
+    const handle = (tokens) => {
+      log.push(tokens);
+      const tag = tokens[0];
+      const cmd = (tokens[1] || '').toUpperCase();
+      const ok = (t) => sock.write(tag + ' OK ' + (t || 'done') + '\r\n');
+      const no = (t) => sock.write(tag + ' NO ' + (t || 'failed') + '\r\n');
+      if (cmd === 'LOGOUT') { sock.write('* BYE\r\n'); ok(); sock.end(); return; }
+      if (cmd === 'LOGIN') {
+        if (tokens[2] === USER && tokens[3] === PASSWORD) { authed = true; return ok('LOGIN completed'); }
+        return no('[AUTHENTICATIONFAILED] Authentication failed.');
+      }
+      if (!authed) return sock.write(tag + ' BAD not authenticated\r\n');
+      if (cmd === 'LIST') { sock.write(FOLDERS.join('\r\n') + '\r\n'); return ok(); }
+      if (cmd === 'EXAMINE') {
+        if (!MAILBOXES[tokens[2]]) return no('Mailbox doesn\'t exist');
+        box = MAILBOXES[tokens[2]];
+        sock.write('* ' + box.length + ' EXISTS\r\n');
+        return ok('[READ-ONLY] Examine completed');
+      }
+      if (cmd === 'UID' && /^SEARCH$/i.test(tokens[2])) {
+        let found = box;
+        if (/^CHARSET$/i.test(tokens[3])) {
+          const q = tokens[tokens.length - 1].toLowerCase();
+          found = box.filter((m) => {
+            const text = m.raw.toString();
+            const subj = /Subject: =\?UTF-8\?B\?([^?]+)/.exec(text);
+            const from = /^From: (.*)$/m.exec(text)[1];
+            return (subj && Buffer.from(subj[1], 'base64').toString().toLowerCase().includes(q)) || from.toLowerCase().includes(q);
+          });
+        }
+        sock.write('* SEARCH' + found.map((m) => ' ' + m.uid).join('') + '\r\n');
+        return ok();
+      }
+      if (cmd === 'UID' && /^FETCH$/i.test(tokens[2])) {
+        const uids = tokens[3].split(',').map(Number);
+        const items = tokens.slice(4).join(' ');
+        box.forEach((m, i) => {
+          if (!uids.includes(m.uid)) return;
+          const raw = Buffer.from(m.raw);
+          let chunks;
+          if (/BODY\.PEEK\[\]/i.test(items)) {
+            chunks = [Buffer.from('* ' + (i + 1) + ' FETCH (UID ' + m.uid + ' BODY[] '), literal(raw), Buffer.from(')\r\n')];
+          } else {
+            const header = raw.toString().split('\r\n\r\n')[0].split('\r\n')
+              .filter((l) => /^(From|Subject|Date):/i.test(l)).join('\r\n') + '\r\n\r\n';
+            chunks = [
+              Buffer.from('* ' + (i + 1) + ' FETCH (UID ' + m.uid + ' INTERNALDATE "' + m.idate + '" RFC822.SIZE ' + raw.length +
+                ' BODY[HEADER.FIELDS (FROM SUBJECT DATE)] '),
+              literal(Buffer.from(header)), Buffer.from(')\r\n')
+            ];
+          }
+          sock.write(Buffer.concat(chunks));
+        });
+        return ok();
+      }
+      sock.write(tag + ' BAD unknown command\r\n');
+    };
+
+    sock.on('data', (d) => {
+      buf = Buffer.concat([buf, d]);
+      for (;;) {
+        if (need) {
+          if (buf.length < need) return;
+          parts.push(buf.subarray(0, need));
+          buf = buf.subarray(need);
+          need = 0;
+          continue;
+        }
+        const nl = buf.indexOf('\r\n');
+        if (nl < 0) return;
+        const line = buf.subarray(0, nl).toString('utf8');
+        buf = buf.subarray(nl + 2);
+        const m = /\{(\d+)\}$/.exec(line);
+        if (m) {
+          parts.push(line.slice(0, m.index));
+          need = +m[1];
+          sock.write('+ go ahead\r\n');
+          continue;
+        }
+        parts.push(line);
+        const tokens = tokenize(parts);
+        parts = [];
+        handle(tokens);
+      }
+    });
+    sock.on('error', () => {});
+  });
+}
+
+module.exports = { createServer, USER, PASSWORD, MAILBOXES };
+
+if (require.main === module) {
+  const port = Number(process.argv[2]) || 1143;
+  createServer().listen(port, '127.0.0.1', () => console.log('fake IMAP on 127.0.0.1:' + port));
+}
