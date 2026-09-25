@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "ИИ-Телеграм",
+  "short_name": "ИИ-Телеграм",
+  "version": "1.0.0",
+  "description": "Переписка из Telegram Web в читабельном виде с переводом; перевод своего ответа перед отправкой.",
+  "permissions": ["storage", "scripting"],
+  "host_permissions": [
+    "https://web.telegram.org/*",
+    "https://translate.googleapis.com/*"
+  ],
+  "background": { "service_worker": "background.js" },
+  "action": { "default_title": "ИИ-Телеграм: открыть панель" },
+  "content_scripts": [
+    {
+      "matches": ["https://web.telegram.org/*"],
+      "js": ["translate-core.js", "content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

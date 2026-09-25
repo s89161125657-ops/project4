@@ -3,6 +3,7 @@ WORKDIR /app
 COPY package.json server.js ./
 COPY public ./public
 COPY lib ./lib
+COPY telegram-extension ./telegram-extension
 ENV NODE_ENV=production PORT=3000
 EXPOSE 3000
 USER node
