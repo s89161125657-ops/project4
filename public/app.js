@@ -243,7 +243,7 @@
     }).join('');
 
     return '<div style="font-family:Calibri,Arial,Helvetica,sans-serif;font-size:14px;line-height:1.45;color:#1c1e21;">' +
-      (pasteMode ? '<p style="color:' + HEADER_GREEN + ';font-weight:bold;margin:0 0 14px;font-size:14px;">' +
+      (pasteMode ? '<p style="color:' + HEADER_GREEN + ';margin:0 0 14px;font-size:14px;">' +
         BANNER_LINES.map(esc).join('<br>') + '</p>' : '') +
       '<table cellspacing="0" cellpadding="0" style="border-collapse:collapse;width:100%;' + (pasteMode ? '' : 'min-width:640px;') + 'table-layout:fixed;">' +
       (pasteMode ? '' : '<colgroup><col style="width:50%"><col style="width:50%"></colgroup>') +
