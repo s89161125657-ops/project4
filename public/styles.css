@@ -83,7 +83,7 @@ textarea {
 .main-panel {
   min-height: 0;
   display: grid;
-  grid-template-columns: 440px minmax(0, 1fr);
+  grid-template-columns: 480px minmax(0, 1fr);
 }
 
 .bottom-panel {
@@ -142,8 +142,10 @@ textarea {
 .mail-head h2 { margin: 0; font-size: 18px; color: #2b3036; white-space: nowrap; }
 .mail-account { flex: 1; min-width: 0; color: var(--muted); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; }
 .mail-head button { padding: 3px 10px; font-size: 14px; }
-.mail-actions { display: flex; flex-wrap: wrap; gap: 6px; }
-.mail-actions button { padding: 6px 10px; font-size: 13.5px; }
+.mail-actions { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.mail-row { display: flex; gap: 6px; width: 100%; }
+.mail-row button { flex: 1 1 auto; white-space: nowrap; }
+.mail-actions button { padding: 6px 8px; font-size: 13px; }
 .mail-panel .status { margin-top: 0; min-height: 0; font-size: 13px; }
 .mail-panel .status:empty, .mail-panel .legend:empty { display: none; }
 .mail-login { display: grid; gap: 10px; padding-top: 4px; border-top: 1px solid #dde0e4; }
