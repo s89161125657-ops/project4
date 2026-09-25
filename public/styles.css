@@ -31,22 +31,7 @@ body {
 .app {
   height: 100vh;
   display: grid;
-  grid-template-rows: 25vh 1fr;
-}
-
-.top-panel {
-  min-height: 0;
-  display: grid;
-  padding: 12px 20px;
-  border-bottom: 5px solid var(--orange);
-  box-shadow: 0 3px 10px rgba(0, 0, 0, .25), inset 0 -1px 0 rgba(255, 255, 255, .6);
-  background-color: #c9cbcd;
-  background-image: var(--brushed);
-  background-size: 100vw auto;
-  background-repeat: repeat-y;
-  background-attachment: fixed;
-  position: relative;
-  z-index: 1;
+  grid-template-rows: minmax(0, 1fr);
 }
 
 
@@ -95,32 +80,8 @@ textarea {
 .legend span { display: inline-flex; align-items: center; gap: 6px; }
 .legend i { width: 12px; height: 12px; border-radius: 3px; display: inline-block; box-shadow: 0 0 0 1px rgba(0, 0, 0, .2); }
 
-/* Чувствительная область для писем из Outlook */
-.dropzone {
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  padding: 10px 16px;
-  text-align: center;
-  cursor: pointer;
-  border: 1px solid rgba(255, 255, 255, .8);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, .62);
-  box-shadow: inset 0 2px 6px rgba(0, 0, 0, .18), 0 1px 4px rgba(0, 0, 0, .2);
-  backdrop-filter: blur(1.5px);
-  transition: background .15s, transform .15s;
-}
-.dropzone .drop-icon { color: var(--orange); }
-.dropzone strong { font-size: 18px; color: var(--orange-dark); }
-.dropzone span { color: var(--muted); font-size: 13px; }
-.dropzone:hover, .dropzone:focus-visible { background: rgba(255, 255, 255, .78); outline: none; }
-.dropzone.over {
-  background: rgba(255, 154, 46, .25);
-  transform: scale(1.01);
-}
+/* Письмо из Outlook можно бросить в любое место страницы */
+.main-panel.over .bottom-panel { background: rgba(255, 154, 46, .18); box-shadow: inset 0 0 0 3px var(--orange); }
 
 .main-panel {
   min-height: 0;
@@ -233,10 +194,8 @@ input:focus-visible, select:focus-visible { outline: 2px solid var(--orange); ou
 
 @media (max-width: 800px) {
   .app { height: auto; display: block; }
-  .top-panel { padding: 12px 16px; }
   .main-panel { display: block; }
   .mail-panel { margin: 12px 16px 0; max-height: 80vh; }
-  .dropzone { min-height: 110px; }
   .bottom-panel { overflow: visible; padding: 12px 16px 24px; }
   .result { padding: 12px; }
 }

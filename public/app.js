@@ -29,8 +29,8 @@
 
   const $ = (id) => document.getElementById(id);
   const els = {
-    paste: $('pasteBtn'), copy: $('copyBtn'),
-    stripSig: $('stripSig'), drop: $('dropZone'), placeholder: $('placeholder'), file: $('fileInput'), source: $('source'),
+    paste: $('pasteBtn'),
+    stripSig: $('stripSig'), drop: $('main'), placeholder: $('placeholder'), source: $('source'),
     status: $('status'), legend: $('legend'), result: $('result')
   };
 
@@ -346,7 +346,6 @@
       current = null;
       els.result.hidden = true;
       els.legend.innerHTML = '';
-      els.copy.disabled = true;
       setStatus('Нет текста для обработки.', true);
       return;
     }
@@ -375,7 +374,6 @@
       return;
     }
     current = { messages, translations: null, mode };
-    els.copy.disabled = false;
     const senders = new Set(messages.map((m) => senderKey(m) || '?')).size;
     const summary = (messages.length < all.length
       ? 'Показаны первые ' + messages.length + ' письма из ' + all.length
@@ -447,55 +445,6 @@
     }
   }
 
-  function plainText() {
-    const out = current.mode === 'paste' ? [BANNER_LINES.join('\n'), ''] : [];
-    current.messages.forEach((msg, i) => {
-      const tr = current.translations && current.translations[i];
-      const gap = i > 0 && elapsedBetween(current.messages[i - 1], msg);
-      if (gap) {
-        out.push('--- Time between messages: ' + gap.en + (gap.night ? ' (including night)' : '') +
-          ' / Между письмами прошло: ' + gap.ru + (gap.night ? ' (включая ночь)' : '') + ' ---', '');
-      }
-      const head = (lang) => {
-        const d = dateLine(msg, tr, lang);
-        return ((lang && msg.name ? applyGlossary(msg.name, lang) : msg.name) || msg.email || 'Отправитель не определён') +
-          (d ? ', ' + d : '');
-      };
-      const attLine = (lang) => msg.attachments && msg.attachments.length
-        ? [(lang === 'ru' ? 'Вложение в письмо: ' : 'Attachment to the email: ') + msg.attachments.map((a) => a.name).join(', ')] : [];
-      if (current.mode !== 'paste') out.push(head(''), ...msg.lines, ...attLine(msg.target === 'en' ? 'ru' : 'en'), '');
-      if (tr && tr.lines) out.push(head(msg.target), ...tr.lines, ...attLine(msg.target), '');
-    });
-    return out.join('\n');
-  }
-
-  async function copyResult() {
-    if (!current) return;
-    const html = buildHtml(current.messages, current.translations, loadColors(), current.mode === 'paste');
-    const text = plainText();
-    try {
-      if (window.ClipboardItem && navigator.clipboard.write) {
-        await navigator.clipboard.write([new ClipboardItem({
-          'text/html': new Blob([html], { type: 'text/html' }),
-          'text/plain': new Blob([text], { type: 'text/plain' })
-        })]);
-      } else {
-        throw new Error('fallback');
-      }
-    } catch {
-      // Запасной вариант: выделяем результат и копируем через execCommand
-      const range = document.createRange();
-      range.selectNodeContents(els.result);
-      const sel = window.getSelection();
-      sel.removeAllRanges();
-      sel.addRange(range);
-      const ok = document.execCommand('copy');
-      sel.removeAllRanges();
-      if (!ok) { setStatus('Не удалось скопировать. Выделите результат и нажмите Ctrl+C.', true); return; }
-    }
-    setStatus('Результат скопирован — его можно вставить в письмо с сохранением цветов.');
-  }
-
   // ---------- Перетаскивание письма из Outlook ----------
   // Разбор файла письма (.msg / .eml): картинки и вложения запоминаются, возвращается текст
   function mailFileToText(name, bytes) {
@@ -549,16 +498,8 @@
     els.drop.classList.remove('over');
     handleDrop(e.dataTransfer);
   });
-  els.drop.addEventListener('click', () => els.file.click());
-  els.drop.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); els.file.click(); } });
-  els.file.addEventListener('change', async () => {
-    if (!els.file.files.length) return;
-    await handleDrop({ files: els.file.files });
-    els.file.value = '';
-  });
 
   els.paste.addEventListener('click', pasteFromClipboard);
-  els.copy.addEventListener('click', copyResult);
   els.stripSig.addEventListener('change', () => { if (els.source.value.trim()) processText(); });
   // Ctrl+V в любом месте страницы — текст из буфера обмена, как кнопка «для Haier в почту»
   document.addEventListener('paste', (e) => {

@@ -10,20 +10,8 @@
 </head>
 <body>
   <div class="app">
-    <!-- Сверху — область для писем из Outlook -->
-    <section class="top-panel">
-      <div id="dropZone" class="dropzone" role="button" tabindex="0" aria-label="Перетащите письмо из Outlook сюда или нажмите, чтобы выбрать файл">
-        <span class="drop-icon" aria-hidden="true">
-          <svg viewBox="0 0 48 48" width="40" height="40"><rect x="5" y="11" width="38" height="27" rx="3" fill="none" stroke="currentColor" stroke-width="3"/><path d="M7 14l17 13 17-13" fill="none" stroke="currentColor" stroke-width="3"/></svg>
-        </span>
-        <strong>Перетащите письмо из Outlook сюда</strong>
-        <span>переводится вся переписка · или нажмите, чтобы выбрать файл .msg / .eml</span>
-        <input id="fileInput" type="file" accept=".msg,.eml,.txt,.htm,.html,message/rfc822" multiple hidden>
-      </div>
-    </section>
-
-    <!-- Снизу слева — окно «Почта», справа — переписка -->
-    <section class="main-panel">
+    <!-- Слева — окно «Почта», справа — переписка -->
+    <section id="main" class="main-panel">
       <aside class="mail-panel" aria-labelledby="mailTitle">
         <div class="mail-head">
           <h2 id="mailTitle">Почта</h2>
@@ -33,7 +21,6 @@
 
         <div class="mail-actions">
           <button id="pasteBtn" class="primary" type="button" title="Выделенное письмо (или текст из буфера обмена): первые 2 письма, только перевод, с надписью для коллег из Haier">для Haier в почту</button>
-          <button id="copyBtn" type="button" disabled>Копировать результат</button>
           <button id="threadBtn" type="button" title="Выделенное письмо: вся переписка, оригинал и перевод">Переписка в читабельном виде</button>
         </div>
         <label class="option"><input type="checkbox" id="stripSig" checked> Убирать подписи в конце писем</label>
@@ -64,7 +51,7 @@
         <div id="placeholder" class="placeholder">
           Выделите письмо в окне слева и нажмите «для Haier в почту» (первые 2 письма, только перевод)
           или «Переписка в читабельном виде» (вся переписка).
-          Можно также вставить текст из буфера обмена (Ctrl+V) или перетащить письмо из Outlook в область сверху.
+          Можно также вставить текст из буфера обмена (Ctrl+V) или перетащить письмо из Outlook в любое место страницы.
         </div>
         <div id="result" class="result" hidden></div>
       </div>
