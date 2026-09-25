@@ -138,7 +138,7 @@
 
   function cellHtml(color, header, bodyHtml, extraStyle) {
     // ширина задаётся таблицей: 2 колонки по 50% или одна на всю ширину
-    return '<td style="vertical-align:top;padding:10px 14px 14px;background:' + tint(color, 0.09) + ';' +
+    return '<td style="vertical-align:top;padding:10px 14px 14px;background:#ffffff;' +
       'border-left:6px solid ' + color + ';color:' + color + ';word-wrap:break-word;overflow-wrap:anywhere;' +
       (extraStyle || '') + '">' +
       '<div style="margin:0 0 6px;font-size:14px;padding-bottom:4px;border-bottom:1px solid ' + tint(color, 0.35) + ';">' + header + '</div>' +
