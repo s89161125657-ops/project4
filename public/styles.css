@@ -7,15 +7,11 @@
   --steel-edge: #8a9098;
   --paper: #ffffff;
 
-  /* Шлифованная нержавейка: тонкие горизонтальные риски + мягкие блики */
-  --brushed:
-    repeating-linear-gradient(0deg,
-      rgba(255, 255, 255, .10) 0px, rgba(255, 255, 255, .10) 1px,
-      rgba(0, 0, 0, .035) 1px, rgba(0, 0, 0, .035) 2px,
-      rgba(255, 255, 255, 0) 2px, rgba(255, 255, 255, 0) 4px),
-    repeating-linear-gradient(0deg,
-      rgba(0, 0, 0, .025) 0px, rgba(0, 0, 0, 0) 7px, rgba(255, 255, 255, .05) 13px, rgba(0, 0, 0, 0) 19px),
-    linear-gradient(100deg, #a9aeb5 0%, #dde0e4 18%, #b6bac1 36%, #eceef0 55%, #b1b6bd 74%, #d3d6da 90%, #b9bdc3 100%);
+  /* Шлифованная нержавейка: текстура рисок (steel.svg) + блики поверх неё */
+  --sheen: linear-gradient(100deg,
+      rgba(255, 255, 255, .00) 0%, rgba(255, 255, 255, .30) 16%, rgba(0, 0, 0, .10) 33%,
+      rgba(255, 255, 255, .38) 52%, rgba(0, 0, 0, .12) 72%, rgba(255, 255, 255, .22) 88%, rgba(0, 0, 0, .06) 100%);
+  --brushed: var(--sheen), url("steel.svg");
 }
 
 * { box-sizing: border-box; }
@@ -26,8 +22,9 @@ body {
   margin: 0;
   color: var(--text);
   font: 15px/1.5 -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
-  background: #c3c7cc;
+  background-color: #b4b9bf;
   background-image: var(--brushed);
+  background-size: 100% 100%, 640px 640px;
   background-attachment: fixed;
 }
 
@@ -46,7 +43,9 @@ body {
   padding: 12px 20px;
   border-bottom: 5px solid var(--orange);
   box-shadow: 0 3px 10px rgba(0, 0, 0, .25), inset 0 -1px 0 rgba(255, 255, 255, .6);
+  background-color: #b9bec4;
   background-image: var(--brushed);
+  background-size: 100% 100%, 640px 640px;
   position: relative;
   z-index: 1;
 }
@@ -54,7 +53,13 @@ body {
 .controls {
   min-height: 0;
   overflow-y: auto;
-  padding-right: 4px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  /* Матовая пластина поверх стали — чтобы текст хорошо читался */
+  background: rgba(255, 255, 255, .62);
+  border: 1px solid rgba(255, 255, 255, .8);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, .25), inset 0 1px 0 rgba(255, 255, 255, .9);
+  backdrop-filter: blur(1.5px);
 }
 
 .brand { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
@@ -134,14 +139,15 @@ textarea {
   cursor: pointer;
   border: 3px dashed var(--orange);
   border-radius: 12px;
-  background: rgba(255, 255, 255, .35);
-  box-shadow: inset 0 2px 6px rgba(0, 0, 0, .18);
+  background: rgba(255, 255, 255, .62);
+  box-shadow: inset 0 2px 6px rgba(0, 0, 0, .18), 0 1px 4px rgba(0, 0, 0, .2);
+  backdrop-filter: blur(1.5px);
   transition: background .15s, transform .15s;
 }
 .dropzone .drop-icon { color: var(--orange); }
 .dropzone strong { font-size: 18px; color: var(--orange-dark); }
 .dropzone span { color: var(--muted); font-size: 13px; }
-.dropzone:hover, .dropzone:focus-visible { background: rgba(255, 255, 255, .55); outline: none; }
+.dropzone:hover, .dropzone:focus-visible { background: rgba(255, 255, 255, .78); outline: none; }
 .dropzone.over {
   background: rgba(255, 154, 46, .25);
   border-style: solid;
@@ -163,7 +169,7 @@ textarea {
   border-radius: 10px;
   border: 1px solid rgba(0, 0, 0, .12);
   border-left: 5px solid var(--orange);
-  background: rgba(255, 255, 255, .55);
+  background: rgba(255, 255, 255, .75);
 }
 
 .result {
