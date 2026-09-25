@@ -6,7 +6,6 @@
  *  - GET  /api/config     — сообщает клиенту, как переводить
  *  - POST /api/translate  — перевод массива текстов через Google Translate
  *  - POST /api/mail/*     — чтение писем из почтового ящика по IMAP (кнопка «Почта»)
- *  - GET  /telegram-extension.zip — расширение браузера «ИИ-Телеграм» (папка ./telegram-extension)
  *
  * Если задана переменная GOOGLE_TRANSLATE_API_KEY, используется официальный
  * Google Cloud Translation API v2, иначе — бесплатный публичный эндпоинт.
@@ -17,12 +16,10 @@ const fs = require('fs');
 const path = require('path');
 const { translateText, splitChunks } = require('./public/translate-core');
 const mailApi = require('./lib/mail-api');
-const { zipDir } = require('./lib/zip');
 
 const PORT = Number(process.env.PORT) || 3000;
 const API_KEY = process.env.GOOGLE_TRANSLATE_API_KEY || '';
 const PUBLIC_DIR = path.join(__dirname, 'public');
-const EXTENSION_DIR = path.join(__dirname, 'telegram-extension');
 const MAX_BODY = 2 * 1024 * 1024;
 const TARGETS = new Set(['ru', 'en', 'zh-CN']);
 
@@ -149,24 +146,6 @@ async function handleMail(req, res, action) {
   }
 }
 
-let extensionZip = null;
-
-function serveExtension(req, res) {
-  try {
-    extensionZip = extensionZip || zipDir(EXTENSION_DIR, 'telegram-extension');
-  } catch (e) {
-    console.error('extension zip error:', e.message);
-    res.writeHead(500);
-    return res.end();
-  }
-  res.writeHead(200, {
-    'Content-Type': 'application/zip',
-    'Content-Disposition': 'attachment; filename="telegram-extension.zip"',
-    'Cache-Control': 'no-cache'
-  });
-  res.end(req.method === 'HEAD' ? undefined : extensionZip);
-}
-
 function serveStatic(req, res) {
   let urlPath;
   try {
@@ -202,7 +181,6 @@ const server = http.createServer((req, res) => {
   if (MAIL_ACTIONS[pathname] && req.method === 'POST') return void handleMail(req, res, MAIL_ACTIONS[pathname]);
   if (pathname === '/api/config' && req.method === 'GET') return sendJson(res, 200, { serverKey: Boolean(API_KEY), mailHost: mailApi.mailConfig().host });
   if (pathname === '/healthz') return sendJson(res, 200, { ok: true });
-  if (pathname === '/telegram-extension.zip' && (req.method === 'GET' || req.method === 'HEAD')) return serveExtension(req, res);
   if (req.method === 'GET' || req.method === 'HEAD') return serveStatic(req, res);
   res.writeHead(405);
   res.end();
