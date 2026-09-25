@@ -507,6 +507,8 @@
   }
 
   els.paste.addEventListener('click', pasteFromClipboard);
+  // «из буфера обмена»: текст письма из буфера — как «для Haier в почту» для выделенного письма
+  $('clipBtn').addEventListener('click', () => { setMode('paste'); readClipboardAndProcess(); });
   els.copy.addEventListener('click', copyResult);
   els.stripSig.addEventListener('change', () => { if (els.source.value.trim()) processText(); });
   // Ctrl+V в любом месте страницы — текст из буфера обмена, как кнопка «для Haier в почту»
