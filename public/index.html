@@ -10,8 +10,12 @@
 </head>
 <body>
   <div class="app">
-    <!-- Сверху — область для писем из Outlook -->
+    <!-- Сверху — название и область для писем из Outlook -->
     <section class="top-panel">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <h1>ИИ-почта</h1>
+      </div>
       <div id="dropZone" class="dropzone" role="button" tabindex="0" aria-label="Перетащите письмо из Outlook сюда или нажмите, чтобы выбрать файл">
         <span class="drop-icon" aria-hidden="true">
           <svg viewBox="0 0 48 48" width="40" height="40"><rect x="5" y="11" width="38" height="27" rx="3" fill="none" stroke="currentColor" stroke-width="3"/><path d="M7 14l17 13 17-13" fill="none" stroke="currentColor" stroke-width="3"/></svg>
@@ -24,10 +28,9 @@
 
     <!-- Снизу слева — окно «Почта», справа — переписка -->
     <section class="main-panel">
-      <aside class="mail-panel" aria-labelledby="appTitle">
+      <aside class="mail-panel" aria-labelledby="mailTitle">
         <div class="mail-head">
-          <span class="brand-mark" aria-hidden="true"></span>
-          <h1 id="appTitle">ИИ-почта</h1>
+          <h2 id="mailTitle">Почта</h2>
           <span id="mailAccount" class="mail-account"></span>
           <button id="mailLogout" type="button" hidden>Выйти</button>
         </div>
