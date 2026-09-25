@@ -7,11 +7,8 @@
   --steel-edge: #8a9098;
   --paper: #ffffff;
 
-  /* Шлифованная нержавейка: текстура рисок (steel.svg) + блики поверх неё */
-  --sheen: linear-gradient(100deg,
-      rgba(255, 255, 255, .00) 0%, rgba(255, 255, 255, .30) 16%, rgba(0, 0, 0, .10) 33%,
-      rgba(255, 255, 255, .38) 52%, rgba(0, 0, 0, .12) 72%, rgba(255, 255, 255, .22) 88%, rgba(0, 0, 0, .06) 100%);
-  --brushed: var(--sheen), url("steel.svg");
+  /* Шлифованная нержавейка — текстура из образца (steel.jpg) */
+  --brushed: url("steel.jpg");
 }
 
 * { box-sizing: border-box; }
@@ -22,9 +19,11 @@ body {
   margin: 0;
   color: var(--text);
   font: 15px/1.5 -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
-  background-color: #b4b9bf;
+  background-color: #c9cbcd;
   background-image: var(--brushed);
-  background-size: 100% 100%, 640px 640px;
+  /* по ширине — во весь экран, по высоте — повторяется: риски горизонтальные, стыков не видно */
+  background-size: 100vw auto;
+  background-repeat: repeat-y;
   background-attachment: fixed;
 }
 
@@ -43,9 +42,11 @@ body {
   padding: 12px 20px;
   border-bottom: 5px solid var(--orange);
   box-shadow: 0 3px 10px rgba(0, 0, 0, .25), inset 0 -1px 0 rgba(255, 255, 255, .6);
-  background-color: #b9bec4;
+  background-color: #c9cbcd;
   background-image: var(--brushed);
-  background-size: 100% 100%, 640px 640px;
+  background-size: 100vw auto;
+  background-repeat: repeat-y;
+  background-attachment: fixed;
   position: relative;
   z-index: 1;
 }

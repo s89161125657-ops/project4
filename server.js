@@ -28,6 +28,7 @@ const MIME = {
   '.svg': 'image/svg+xml',
   '.ico': 'image/x-icon',
   '.png': 'image/png',
+  '.jpg': 'image/jpeg',
   '.json': 'application/json; charset=utf-8'
 };
 
