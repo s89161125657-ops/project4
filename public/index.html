@@ -4,39 +4,50 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Переписка в читабельном виде</title>
-  <meta name="description" content="Разбор e-mail переписки из буфера обмена и параллельный перевод на русский язык">
+  <meta name="description" content="Разбор e-mail переписки из буфера обмена или Outlook и параллельный перевод">
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <header class="topbar">
-    <h1>Переписка в читабельном виде</h1>
-    <p class="sub">Скопируйте цепочку писем (Ctrl+A, Ctrl+C в почтовом клиенте) и нажмите кнопку ниже — или перетащите письмо из Outlook в поле ниже.</p>
-  </header>
-
-  <main>
-    <section class="input-card">
-      <div class="actions">
-        <button id="pasteBtn" class="primary" type="button">Вставить из буфера обмена</button>
-        <button id="last2Btn" type="button">Перевести только 2 последних письма</button>
-        <button id="copyBtn" type="button" disabled>Копировать результат</button>
+  <div class="app">
+    <!-- Верхняя часть: четверть экрана — управление -->
+    <section class="top-panel">
+      <div class="controls">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true"></span>
+          <h1>Переписка в читабельном виде</h1>
+        </div>
+        <div class="actions">
+          <button id="pasteBtn" class="primary" type="button" title="Переводятся только первые 2 письма">Вставить из буфера обмена</button>
+          <button id="copyBtn" type="button" disabled>Копировать результат</button>
+        </div>
+        <label class="option"><input type="checkbox" id="stripSig" checked> Убирать подписи в конце писем</label>
+        <details id="sourceBox">
+          <summary>Исходный текст</summary>
+          <textarea id="source" spellcheck="false" placeholder="Сюда можно вставить текст переписки вручную (Ctrl+V)…"></textarea>
+        </details>
+        <div id="status" class="status" role="status" aria-live="polite"></div>
+        <div id="legend" class="legend"></div>
       </div>
       <div id="dropZone" class="dropzone" role="button" tabindex="0" aria-label="Перетащите письмо из Outlook сюда или нажмите, чтобы выбрать файл">
+        <span class="drop-icon" aria-hidden="true">
+          <svg viewBox="0 0 48 48" width="40" height="40"><rect x="5" y="11" width="38" height="27" rx="3" fill="none" stroke="currentColor" stroke-width="3"/><path d="M7 14l17 13 17-13" fill="none" stroke="currentColor" stroke-width="3"/></svg>
+        </span>
         <strong>Перетащите письмо из Outlook сюда</strong>
-        <span>или нажмите, чтобы выбрать файл .msg / .eml — письмо будет сразу переведено</span>
+        <span>переводится вся переписка · или нажмите, чтобы выбрать файл .msg / .eml</span>
         <input id="fileInput" type="file" accept=".msg,.eml,.txt,.htm,.html,message/rfc822" multiple hidden>
       </div>
-      <label class="option"><input type="checkbox" id="stripSig" checked> Убирать подписи в конце писем</label>
-      <details id="sourceBox">
-        <summary>Исходный текст</summary>
-        <textarea id="source" spellcheck="false" placeholder="Сюда можно вставить текст переписки вручную (Ctrl+V)…"></textarea>
-      </details>
-      <div id="status" class="status" role="status" aria-live="polite"></div>
-      <div id="legend" class="legend"></div>
     </section>
 
-    <section id="result" class="result" hidden></section>
-  </main>
+    <!-- Нижняя часть: остальные три четверти — переписка -->
+    <section class="bottom-panel">
+      <div id="placeholder" class="placeholder">
+        Нажмите «Вставить из буфера обмена» (переводятся первые 2 письма)
+        или перетащите письмо из Outlook в оранжевую рамку (переводится вся переписка).
+      </div>
+      <div id="result" class="result" hidden></div>
+    </section>
+  </div>
 
   <script src="parser.js"></script>
   <script src="translate-core.js"></script>

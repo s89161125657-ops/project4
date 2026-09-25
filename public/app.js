@@ -8,12 +8,20 @@
   const HEADER_GREEN = '#006400';
   const NAVY = '#000080';
   const UNKNOWN_COLOR = '#616161';
-  // Фиксированные цвета для конкретных адресов
-  const FIXED_COLORS = { 'zsa@inpren.ru': NAVY };
-  // Палитра для остальных отправителей (без тёмно-синего и тёмно-зелёного)
-  const PALETTE = ['#b71c1c', '#6a1b9a', '#e65100', '#00838f', '#ad1457', '#4e342e',
-    '#827717', '#0277bd', '#37474f', '#9e6a00', '#4527a0', '#c62828'];
-  const COLORS_KEY = 'mailThread.senderColors.v1';
+  const BROWN = '#8b4513';
+  // Постоянные цвета: письма zsa@inpren.ru — тёмно-синие, письма Cui — коричневые
+  function fixedColor(msg) {
+    const email = (msg.email || '').toLowerCase();
+    const name = msg.name || '';
+    if (email === 'zsa@inpren.ru') return NAVY;
+    if (/(?:^|[._-])cui(?:[._@-]|baozhen)|^cui/.test(email) || /(?:^|\s)Cui(?:\s|$)|崔保振/.test(name)) return BROWN;
+    return null;
+  }
+  // Палитра для остальных отправителей: яркие, хорошо различимые цвета
+  // (без тёмно-синего, коричневого и тёмно-зелёного — они заняты)
+  const PALETTE = ['#d50000', '#7b1fa2', '#00897b', '#e65100', '#c51162', '#1565c0',
+    '#558b2f', '#6d4c9f', '#ad1457', '#37474f'];
+  const COLORS_KEY = 'mailThread.senderColors.v2';
 
   const BANNER_LINES = [
     'Ниже изложен перевод переписки для коллег из Haier Biomedical:',
@@ -23,7 +31,7 @@
   const $ = (id) => document.getElementById(id);
   const els = {
     paste: $('pasteBtn'), copy: $('copyBtn'),
-    stripSig: $('stripSig'), last2: $('last2Btn'), drop: $('dropZone'), file: $('fileInput'), source: $('source'), sourceBox: $('sourceBox'),
+    stripSig: $('stripSig'), drop: $('dropZone'), placeholder: $('placeholder'), file: $('fileInput'), source: $('source'), sourceBox: $('sourceBox'),
     status: $('status'), legend: $('legend'), result: $('result')
   };
 
@@ -49,7 +57,8 @@
   function colorFor(msg, map) {
     const key = senderKey(msg);
     if (!key) return UNKNOWN_COLOR;
-    if (FIXED_COLORS[key]) return FIXED_COLORS[key];
+    const fixed = fixedColor(msg);
+    if (fixed) return fixed;
     if (map[key] && PALETTE.includes(map[key])) return map[key];
     const used = new Set(Object.values(map));
     let color = PALETTE.find((c) => !used.has(c));
@@ -119,13 +128,22 @@
     return parts.join(', ');
   }
 
+  // Светлая заливка цветом отправителя (для лучшего различения писем)
+  function tint(hex, alpha) {
+    const n = parseInt(hex.slice(1), 16);
+    // смешиваем с белым — так цвет сохранится и при вставке в Outlook
+    const mix = (c) => Math.round(255 - (255 - c) * alpha);
+    return 'rgb(' + mix((n >> 16) & 255) + ',' + mix((n >> 8) & 255) + ',' + mix(n & 255) + ')';
+  }
+
   function cellHtml(color, header, bodyHtml, extraStyle) {
-    return '<td style="vertical-align:top;width:50%;padding:10px 14px 14px;' +
-      'border-left:4px solid ' + color + ';color:' + color + ';word-wrap:break-word;overflow-wrap:anywhere;' +
+    return '<td style="vertical-align:top;width:50%;padding:10px 14px 14px;background:' + tint(color, 0.09) + ';' +
+      'border-left:6px solid ' + color + ';color:' + color + ';word-wrap:break-word;overflow-wrap:anywhere;' +
       (extraStyle || '') + '">' +
-      '<div style="margin:0 0 6px;font-size:14px;">' + header + '</div>' +
+      '<div style="margin:0 0 6px;font-size:14px;padding-bottom:4px;border-bottom:1px solid ' + tint(color, 0.35) + ';">' + header + '</div>' +
       '<div style="font-size:14px;">' + bodyHtml + '</div></td>';
   }
+
 
   // ---------- Картинки ----------
   // Картинки из перетащенного письма: cid / имя файла -> data: URL
@@ -203,12 +221,12 @@
       '</td></tr>';
   }
 
-  function buildHtml(messages, translations, colorMap) {
+  function buildHtml(messages, translations, colorMap, withBanner) {
     const rows = messages.map((msg, i) => {
       const color = colorFor(msg, colorMap);
       const tr = translations ? translations[i] : null;
       const leftHeader = headerHtml(msg, msg.dateRaw || formatDateRu(msg.date), '');
-      const ruDate = msg.date ? formatDateRu(msg.date) : (tr && tr.date) || msg.dateRaw;
+      const ruDate = msg.dateDisplay || (msg.date ? formatDateRu(msg.date) : (tr && tr.date) || msg.dateRaw);
       const rightHeader = headerHtml(msg, ruDate, msg.target);
       let rightBody;
       if (!tr) rightBody = '<span class="pending">Перевод…</span>';
@@ -217,13 +235,13 @@
       const sep = i > 0 ? 'border-top:1px solid #e3e6ea;' : '';
       return (i > 0 ? gapRowHtml(messages[i - 1], msg) : '') + '<tr>' +
         cellHtml(color, leftHeader, linesHtml(msg.lines, ''), sep) +
-        cellHtml(color, rightHeader, rightBody, sep + 'border-left-width:4px;') +
+        cellHtml(color, rightHeader, rightBody, sep) +
         '</tr>';
     }).join('');
 
     return '<div style="font-family:Calibri,Arial,Helvetica,sans-serif;font-size:14px;line-height:1.45;color:#1c1e21;">' +
-      '<p style="color:' + HEADER_GREEN + ';font-weight:bold;margin:0 0 14px;font-size:14px;">' +
-      BANNER_LINES.map(esc).join('<br>') + '</p>' +
+      (withBanner ? '<p style="color:' + HEADER_GREEN + ';font-weight:bold;margin:0 0 14px;font-size:14px;">' +
+        BANNER_LINES.map(esc).join('<br>') + '</p>' : '') +
       '<table cellspacing="0" cellpadding="0" style="border-collapse:collapse;width:100%;min-width:640px;table-layout:fixed;">' +
       '<colgroup><col style="width:50%"><col style="width:50%"></colgroup>' +
       '<tbody>' + rows + '</tbody></table></div>';
@@ -247,10 +265,11 @@
   function render() {
     if (!current) return;
     const colorMap = loadColors();
-    els.result.innerHTML = buildHtml(current.messages, current.translations, colorMap);
+    els.result.innerHTML = buildHtml(current.messages, current.translations, colorMap, current.mode === 'paste');
     renderLegend(current.messages, colorMap);
     saveColors(colorMap);
     els.result.hidden = false;
+    els.placeholder.hidden = true;
   }
 
   function setStatus(text, isError) {
@@ -259,23 +278,24 @@
   }
 
   // ---------- Основной сценарий ----------
-  // Сколько последних писем показывать и переводить (0 — все)
-  let onlyLast = 0;
+  // Два режима работы:
+  //  'paste' — текст вставлен из буфера обмена: переводятся только первые 2 письма,
+  //            письмо без заголовка (ваш ответ) подписывается "Sergei Zakharov" и временем вставки,
+  //            вверху — надпись для коллег из Haier Biomedical;
+  //  'drop'  — письмо перетащено из Outlook: переводится вся переписка, без надписи.
+  let mode = 'paste';
+  let pastedAt = new Date();
+  const ME = { name: 'Sergei Zakharov', email: 'zsa@inpren.ru' };
 
-  // n самых свежих писем: по датам, если они есть у всех, иначе первые n
-  // (почтовые клиенты ставят новые письма в начало цепочки). Порядок сохраняется.
-  function pickLatest(messages, n) {
-    if (!n || messages.length <= n) return messages;
-    const ts = (m) => m.date ? Date.UTC(m.date.y, m.date.m - 1, m.date.d, m.date.hh || 0, m.date.mm || 0) : null;
-    if (messages.every((m) => ts(m) !== null)) {
-      const top = messages.map((m, i) => ({ i, t: ts(m) }))
-        .sort((a, b) => b.t - a.t || a.i - b.i)
-        .slice(0, n)
-        .map((x) => x.i)
-        .sort((a, b) => a - b);
-      return top.map((i) => messages[i]);
-    }
-    return messages.slice(0, n);
+  function setMode(m) {
+    mode = m;
+    if (m === 'paste') pastedAt = new Date();
+  }
+
+  const pad2 = (n) => String(n).padStart(2, '0');
+  // 25.09.2026 8:23
+  function formatStamp(d) {
+    return pad2(d.getDate()) + '.' + pad2(d.getMonth() + 1) + '.' + d.getFullYear() + ' ' + d.getHours() + ':' + pad2(d.getMinutes());
   }
 
   async function processText() {
@@ -290,7 +310,17 @@
       return;
     }
     const all = parseThread(text, { stripSignatures: els.stripSig.checked }).filter((m) => m.lines.length || !m.unknown);
-    const messages = pickLatest(all, onlyLast);
+    if (mode === 'paste' && all.length && all[0].unknown) {
+      // Текст без заголовка вверху — это ваш ответ
+      const me = all[0];
+      me.unknown = false;
+      me.name = ME.name;
+      me.email = ME.email;
+      me.dateRaw = formatStamp(pastedAt);
+      me.dateDisplay = me.dateRaw;
+      me.date = { y: pastedAt.getFullYear(), m: pastedAt.getMonth() + 1, d: pastedAt.getDate(), hh: pastedAt.getHours(), mm: pastedAt.getMinutes() };
+    }
+    const messages = mode === 'paste' ? all.slice(0, 2) : all;
     for (const msg of messages) {
       const body = msg.lines.join('\n').replace(IMAGE_RE, ' ');
       msg.target = body.trim() && isMostlyRussian(body) ? 'en' : 'ru';
@@ -299,11 +329,11 @@
       setStatus('Не удалось найти письма в тексте.', true);
       return;
     }
-    current = { messages, translations: null };
+    current = { messages, translations: null, mode };
     els.copy.disabled = false;
     const senders = new Set(messages.map((m) => senderKey(m) || '?')).size;
     const summary = (messages.length < all.length
-      ? 'Показаны ' + messages.length + ' последних письма из ' + all.length
+      ? 'Показаны первые ' + messages.length + ' письма из ' + all.length
       : 'Писем: ' + messages.length) + ', отправителей: ' + senders + '.';
     setStatus(summary + ' Перевожу…');
     render();
@@ -356,15 +386,8 @@
   }
 
   async function pasteFromClipboard() {
-    onlyLast = 0;
+    setMode('paste');
     await readClipboardAndProcess();
-  }
-
-  // Перевести только 2 последних письма: берём текст из поля, а если оно пустое — из буфера обмена
-  async function translateLastTwo() {
-    onlyLast = 2;
-    if (els.source.value.trim()) processText();
-    else await readClipboardAndProcess();
   }
 
   async function readClipboardAndProcess() {
@@ -386,7 +409,7 @@
   }
 
   function plainText() {
-    const out = [BANNER_LINES.join('\n'), ''];
+    const out = current.mode === 'paste' ? [BANNER_LINES.join('\n'), ''] : [];
     current.messages.forEach((msg, i) => {
       const tr = current.translations && current.translations[i];
       const gap = i > 0 && elapsedBetween(current.messages[i - 1], msg);
@@ -397,14 +420,14 @@
       const head = (d, lang) => ((lang && msg.name ? applyGlossary(msg.name, lang) : msg.name) || msg.email || 'Отправитель не определён') +
         (d ? ', ' + d : '');
       out.push(head(msg.dateRaw), ...msg.lines, '');
-      if (tr && tr.lines) out.push(head(msg.date ? formatDateRu(msg.date) : tr.date || msg.dateRaw, msg.target), ...tr.lines, '');
+      if (tr && tr.lines) out.push(head(msg.dateDisplay || (msg.date ? formatDateRu(msg.date) : tr.date || msg.dateRaw), msg.target), ...tr.lines, '');
     });
     return out.join('\n');
   }
 
   async function copyResult() {
     if (!current) return;
-    const html = buildHtml(current.messages, current.translations, loadColors());
+    const html = buildHtml(current.messages, current.translations, loadColors(), current.mode === 'paste');
     const text = plainText();
     try {
       if (window.ClipboardItem && navigator.clipboard.write) {
@@ -459,7 +482,7 @@
         return;
       }
       els.source.value = text;
-      onlyLast = 0;
+      setMode('drop');
       processText();
     } catch (e) {
       setStatus('Не удалось прочитать письмо: ' + e.message, true);
@@ -486,8 +509,7 @@
   });
 
   els.paste.addEventListener('click', pasteFromClipboard);
-  els.last2.addEventListener('click', translateLastTwo);
   els.copy.addEventListener('click', copyResult);
   els.stripSig.addEventListener('change', () => { if (els.source.value.trim()) processText(); });
-  els.source.addEventListener('paste', () => setTimeout(() => { onlyLast = 0; imageStore.clear(); processText(); }, 0));
+  els.source.addEventListener('paste', () => setTimeout(() => { setMode('paste'); imageStore.clear(); processText(); }, 0));
 })();
