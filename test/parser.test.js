@@ -483,7 +483,7 @@ test('board -> плата; images are protected from translation', () => {
 });
 
 test('.eml inline image is extracted and referenced by cid', () => {
-  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  const png = Buffer.from(require('./fake-imap').png(300, 200, [200, 200, 200]), 'base64');
   const eml = [
     'From: Cui <cui@haier.com>', 'Subject: Photo', 'Date: Mon, 22 Sep 2025 10:15:00 +0000',
     'Content-Type: multipart/related; boundary="r"', '',

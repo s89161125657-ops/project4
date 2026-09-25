@@ -554,7 +554,9 @@
     const [head] = splitHeadBody(raw);
     const h = parseHeaders(head);
     const found = walkMime(raw, {});
-    let body = found.plain !== undefined ? found.plain : found.html !== undefined ? htmlToText(found.html) : '';
+    // Если в HTML-версии есть картинки (cid:), берём её — так картинки остаются на своих местах
+    const useHtml = found.html !== undefined && (found.plain === undefined || (/cid:/i.test(found.html) && (found.images || []).length));
+    let body = useHtml ? htmlToText(found.html) : found.plain !== undefined ? found.plain : '';
     body = body.replace(/\r\n/g, '\n');
     // Заголовки в 8-битной кодировке (без =?..?=) обычно в UTF-8
     const hdr = (k) => decodeWords(decodeBytes(latin1ToBytes(h[k] || ''), 'utf-8'));
@@ -575,6 +577,68 @@
       html: found.html,
       files: found.files || []
     };
+  }
+
+  // ---------- Размер картинки и логотипы ----------
+
+  /** Ширина и высота картинки PNG / GIF / JPEG / BMP по её байтам, или null */
+  function imageSize(b) {
+    if (!b || b.length < 24) return null;
+    const u16be = (i) => (b[i] << 8) | b[i + 1];
+    const u16le = (i) => b[i] | (b[i + 1] << 8);
+    const u32be = (i) => ((b[i] << 24) | (b[i + 1] << 16) | (b[i + 2] << 8) | b[i + 3]) >>> 0;
+    const u32le = (i) => (b[i] | (b[i + 1] << 8) | (b[i + 2] << 16) | (b[i + 3] << 24)) >>> 0;
+    if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return { width: u32be(16), height: u32be(20) };
+    if (b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46) return { width: u16le(6), height: u16le(8) };
+    if (b[0] === 0x42 && b[1] === 0x4d) return { width: u32le(18), height: Math.abs(u32le(22) | 0) };
+    if (b[0] === 0xff && b[1] === 0xd8) {
+      let i = 2;
+      while (i + 9 < b.length) {
+        if (b[i] !== 0xff) { i++; continue; }
+        const marker = b[i + 1];
+        if (marker === 0xd8 || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) { i += 2; continue; }
+        // SOF0..SOF15, кроме DHT (c4), JPG (c8), DAC (cc)
+        if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+          return { width: u16be(i + 7), height: u16be(i + 5) };
+        }
+        i += 2 + u16be(i + 2);
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Логотип или значок из подписи (AWTech, INPREN, значки соцсетей и т.п.) — такие картинки
+   * в переписку не включаются: невысокие вытянутые по ширине картинки и совсем маленькие значки.
+   */
+  function isLogoImage(img) {
+    const size = img && imageSize(img.bytes);
+    if (!size || !size.width || !size.height) return false;
+    const { width, height } = size;
+    if (width <= 64 && height <= 64) return true;
+    return height <= 130 && width <= 450 && width / height >= 2;
+  }
+
+  /** Убирает логотипы: из списка картинок и их метки из текста письма */
+  function dropLogos(text, images) {
+    const keys = new Set();
+    const kept = [];
+    for (const img of images) {
+      if (!isLogoImage(img)) { kept.push(img); continue; }
+      const cid = (img.cid || '').toLowerCase();
+      if (cid) { keys.add(cid); keys.add(cid.split('@')[0]); }
+      if (img.name) keys.add(img.name.toLowerCase());
+    }
+    const out = String(text).replace(/\[cid:([^\]\s]+)\]|\[image:\s*([^\]]*)\]|<(image\d+\.(?:png|jpe?g|gif|bmp))>|\[img:(data:image\/[^\]\s]+)\]/gi,
+      (m, cid, alt, bare, data) => {
+        if (data) {
+          const b64 = /;base64,(.*)$/i.exec(data);
+          return b64 && isLogoImage({ bytes: base64ToBytes(b64[1]) }) ? '' : m;
+        }
+        const key = (cid || alt || bare || '').trim().toLowerCase();
+        return keys.has(key) || keys.has(key.split('@')[0]) ? '' : m;
+      });
+    return { text: out, images: kept };
   }
 
   // ---------- Сборка текста для разбора ----------
@@ -608,7 +672,10 @@
     let mail = null;
     if (isCfb(bytes)) mail = parseMsg(bytes);
     else if (/\.(eml|mht|mhtml)$/i.test(name) || /^(?:[\w-]+:.*\r?\n)+/.test(bytesToLatin1(bytes.subarray(0, 2000)))) mail = parseEml(bytes);
-    if (mail) return { text: mailToText(mail), images: mail.images || [], fromEmail: mail.fromEmail || '', fromName: mail.fromName || '' };
+    if (mail) {
+      const clean = dropLogos(mailToText(mail), mail.images || []);
+      return { text: clean.text, images: clean.images, fromEmail: mail.fromEmail || '', fromName: mail.fromName || '' };
+    }
     const text = decodeBytes(bytes, 'utf-8');
     return { text: /<html|<body|<div|<p[\s>]/i.test(text) ? htmlToText(text) : text, images: [] };
   }
@@ -617,5 +684,5 @@
     return fileToMail(name, bytes).text;
   }
 
-  return { decompressRtf, rtfToHtml, fileToMail, fileToText, parseMsg, parseEml, htmlToText, mailToText, readCfbRootStreams };
+  return { imageSize, isLogoImage, dropLogos, decompressRtf, rtfToHtml, fileToMail, fileToText, parseMsg, parseEml, htmlToText, mailToText, readCfbRootStreams };
 });

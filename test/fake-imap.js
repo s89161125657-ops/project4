@@ -7,14 +7,39 @@
  */
 
 const net = require('net');
+const zlib = require('zlib');
 
 const USER = 'demo@example.com';
 const PASSWORD = 'пароль';
 
 function b64(s) { return Buffer.from(s, 'utf8').toString('base64'); }
 
-// 1x1 PNG
-const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+/** Однотонная картинка PNG заданного размера (base64) */
+function png(width, height, [r, g, b]) {
+  const crcTable = Array.from({ length: 256 }, (_, n) => {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    return c >>> 0;
+  });
+  const crc = (buf) => { let c = 0xffffffff; for (const x of buf) c = crcTable[(c ^ x) & 0xff] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; };
+  const chunk = (type, data) => {
+    const len = Buffer.alloc(4); len.writeUInt32BE(data.length);
+    const td = Buffer.concat([Buffer.from(type), data]);
+    const c = Buffer.alloc(4); c.writeUInt32BE(crc(td));
+    return Buffer.concat([len, td, c]);
+  };
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width, 0); ihdr.writeUInt32BE(height, 4); ihdr[8] = 8; ihdr[9] = 2;
+  const row = Buffer.alloc(1 + width * 3);
+  for (let x = 0; x < width; x++) { row[1 + x * 3] = r; row[2 + x * 3] = g; row[3 + x * 3] = b; }
+  const raw = Buffer.concat(Array.from({ length: height }, () => row));
+  return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', ihdr),
+    chunk('IDAT', zlib.deflateSync(raw)), chunk('IEND', Buffer.alloc(0))]).toString('base64');
+}
+
+const PNG = png(400, 300, [255, 128, 128]); // «фото»
+const LOGO_AWTECH = png(170, 40, [0, 120, 200]); // логотип в подписи
+const LOGO_INPREN = png(150, 50, [40, 40, 90]);
 
 function eml({ from, to, subject, date, body, attach }) {
   const head = [
@@ -32,6 +57,8 @@ function eml({ from, to, subject, date, body, attach }) {
     '--b1', 'Content-Type: text/plain; charset=utf-8', 'Content-Transfer-Encoding: base64', '', b64(body),
     '--b1', 'Content-Type: image/png; name="photo.png"', 'Content-Disposition: attachment; filename="photo.png"',
     'Content-Transfer-Encoding: base64', '', PNG,
+    '--b1', 'Content-Type: image/png; name="awtech-logo.png"', 'Content-Disposition: inline; filename="awtech-logo.png"',
+    'Content-ID: <awtech@logo>', 'Content-Transfer-Encoding: base64', '', LOGO_AWTECH,
     '--b1--', ''
   ]).join('\r\n');
 }
@@ -64,8 +91,10 @@ const MAILBOXES = {
       'MIME-Version: 1.0', 'Content-Type: multipart/mixed; boundary="m1"', '',
       '--m1', 'Content-Type: multipart/related; boundary="r1"', '',
       '--r1', 'Content-Type: text/html; charset=utf-8', 'Content-Transfer-Encoding: base64', '',
-      b64('<p>Dear Cui,</p><p>Please see the <b>photo</b> of the board:</p><p><img src="cid:img1@x"></p><script>alert(1)</script>'),
+      b64('<p>Dear Cui,</p><p>Please see the <b>photo</b> of the board:</p><p><img src="cid:img1@x"></p><script>alert(1)</script>' +
+        '<p>Sergei Zakharov</p><p><img src="cid:inpren@logo"></p>'),
       '--r1', 'Content-Type: image/png', 'Content-ID: <img1@x>', 'Content-Transfer-Encoding: base64', '', PNG,
+      '--r1', 'Content-Type: image/png; name="image002.png"', 'Content-ID: <inpren@logo>', 'Content-Transfer-Encoding: base64', '', LOGO_INPREN,
       '--r1--',
       '--m1', 'Content-Type: application/pdf; name="report.pdf"', 'Content-Disposition: attachment; filename="report.pdf"',
       'Content-Transfer-Encoding: base64', '', b64('%PDF-1.4 test'),
@@ -197,7 +226,7 @@ function createServer() {
   });
 }
 
-module.exports = { createServer, USER, PASSWORD, MAILBOXES };
+module.exports = { createServer, USER, PASSWORD, MAILBOXES, png };
 
 if (require.main === module) {
   const port = Number(process.argv[2]) || 1143;

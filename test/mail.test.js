@@ -3,9 +3,9 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const { once } = require('events');
-const { createServer, USER, PASSWORD } = require('./fake-imap');
+const { createServer, USER, PASSWORD, png } = require('./fake-imap');
 const { ImapClient, ResponseReader, decodeFolderName, parseInternalDate, arg } = require('../lib/imap');
-const { parseEml, fileToMail } = require('../public/mailfile');
+const { parseEml, fileToMail, imageSize, isLogoImage } = require('../public/mailfile');
 
 let imap;
 let port;
@@ -144,9 +144,42 @@ test('parseEml: HTML-текст, картинка в тексте и прочи�
     const r = await post('/api/mail/message', { ...creds, folder: 'Sent', uid: 3 });
     const mail = parseEml(new Uint8Array(Buffer.from(r.data.raw, 'base64')));
     assert.match(mail.html, /cid:img1@x/);
-    assert.strictEqual(mail.images.length, 1);
-    assert.strictEqual(mail.images[0].cid, 'img1@x');
+    assert.deepStrictEqual(mail.images.map((i) => i.cid), ['img1@x', 'inpren@logo']);
     assert.deepStrictEqual(mail.files.map((f) => [f.name, f.mime]), [['report.pdf', 'application/pdf']]);
     assert.strictEqual(Buffer.from(mail.files[0].bytes).toString(), '%PDF-1.4 test');
+  });
+});
+
+test('imageSize: PNG, GIF, JPEG', () => {
+  assert.deepStrictEqual(imageSize(Buffer.from(png(170, 40, [0, 0, 0]), 'base64')), { width: 170, height: 40 });
+  const gif = Buffer.from('R0lGODlhAwACAIAAAP///wAAACH5BAEAAAAALAAAAAADAAIAAAICjAsAOw==', 'base64');
+  assert.deepStrictEqual(imageSize(gif), { width: 3, height: 2 });
+  const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 4, 0, 0, 0xff, 0xc0, 0, 11, 8, 0, 50, 0, 150, 1, 1, 0x11, 0, 0, 0, 0, 0, 0]);
+  assert.deepStrictEqual(imageSize(jpeg), { width: 150, height: 50 });
+  assert.strictEqual(imageSize(Buffer.from('not an image at all, really')), null);
+});
+
+test('isLogoImage: логотипы и значки — да, фото и скриншоты — нет', () => {
+  const img = (w, h) => ({ bytes: Buffer.from(png(w, h, [9, 9, 9]), 'base64') });
+  assert.strictEqual(isLogoImage(img(170, 40)), true); // AWTech
+  assert.strictEqual(isLogoImage(img(150, 50)), true); // INPREN
+  assert.strictEqual(isLogoImage(img(24, 24)), true); // значок соцсети
+  assert.strictEqual(isLogoImage(img(400, 300)), false);
+  assert.strictEqual(isLogoImage(img(1200, 200)), false); // широкий скриншот
+  assert.strictEqual(isLogoImage(img(100, 100)), false);
+});
+
+test('логотипы из подписи не попадают в переписку (ни в текст, ни во вложения)', async () => {
+  await withApp(async (post) => {
+    const get = async (folder, uid) => {
+      const r = await post('/api/mail/message', { ...creds, folder, uid });
+      return fileToMail('message.eml', new Uint8Array(Buffer.from(r.data.raw, 'base64')));
+    };
+    const sent = await get('Sent', 3);
+    assert.deepStrictEqual(sent.images.map((i) => i.cid), ['img1@x']);
+    assert.match(sent.text, /\[cid:img1@x\]/);
+    assert.doesNotMatch(sent.text, /inpren@logo/);
+    const inbox = await get('INBOX', 12);
+    assert.deepStrictEqual(inbox.images.map((i) => i.name), ['photo.png']);
   });
 });
