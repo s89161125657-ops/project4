@@ -217,7 +217,7 @@
     if (!gap) return '';
     return '<tr><td colspan="' + cols + '" style="padding:6px 14px;background:#f1f3f5;color:#495057;text-align:center;' +
       'font-size:13px;border-top:1px solid #e3e6ea;">' +
-      '&#9201; Time between messages: <b>' + esc(gap.en) + '</b>' + (gap.night ? ' (including night)' : '') +
+      'Time between messages: <b>' + esc(gap.en) + '</b>' + (gap.night ? ' (including night)' : '') +
       ' &nbsp;/&nbsp; Между письмами прошло: <b>' + esc(gap.ru) + '</b>' + (gap.night ? ' (включая ночь)' : '') +
       '</td></tr>';
   }
