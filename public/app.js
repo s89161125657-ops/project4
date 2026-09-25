@@ -8,8 +8,8 @@
   const HEADER_GREEN = '#006400';
   const NAVY = '#000080';
   const UNKNOWN_COLOR = '#616161';
-  const CUI_COLOR = '#b34700'; // тёмно-оранжевый
-  // Постоянные цвета: письма zsa@inpren.ru — тёмно-синие, письма Cui — тёмно-оранжевые
+  const CUI_COLOR = '#ef6c00'; // оранжевый
+  // Постоянные цвета: письма zsa@inpren.ru — тёмно-синие, письма Cui — оранжевые
   function fixedColor(msg) {
     const email = (msg.email || '').toLowerCase();
     const name = msg.name || '';
@@ -18,7 +18,7 @@
     return null;
   }
   // Палитра для остальных отправителей: хорошо различимые цвета без красных оттенков
-  // (тёмно-синий, тёмно-оранжевый и тёмно-зелёный заняты)
+  // (тёмно-синий, оранжевый и тёмно-зелёный заняты)
   const PALETTE = ['#7b1fa2', '#00897b', '#558b2f', '#6d4c41', '#1565c0', '#37474f', '#827717', '#0097a7'];
   const COLORS_KEY = 'mailThread.senderColors.v3';
 
