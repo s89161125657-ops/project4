@@ -461,11 +461,13 @@ test('elapsed time between messages', () => {
   const fe = (...args) => { const r = formatElapsed(...args); return r && { ru: r.ru, en: r.en }; };
   assert.deepEqual(fe(d(2025, 9, 22, 10, 15), d(2025, 9, 19, 16, 2), 180), { ru: '2 дня 18 часов 13 минут', en: '2 days 18 hours 13 minutes' });
   assert.deepEqual(fe(d(2025, 9, 22, 9, 14), d(2025, 9, 22, 10, 15)), { ru: '1 час 1 минута', en: '1 hour 1 minute' });
-  assert.deepEqual(fe(d(2025, 9, 22, 10, 0), d(2025, 9, 22, 10, 25)), { ru: '0 часов 25 минут', en: '0 hours 25 minutes' });
-  assert.deepEqual(fe(d(2025, 10, 23, 10, 0), d(2025, 9, 22, 8, 0)).ru, '31 день 2 часа 0 минут');
+  assert.deepEqual(fe(d(2025, 9, 22, 10, 0), d(2025, 9, 22, 10, 25)), { ru: '25 минут', en: '25 minutes' });
+  assert.deepEqual(fe(d(2025, 10, 23, 10, 0), d(2025, 9, 22, 8, 0)).ru, '31 день 2 часа');
   assert.equal(formatElapsed(d(2025, 9, 22, null, null), d(2025, 9, 22, 10, 0)), null);
+  assert.deepEqual(fe(d(2025, 9, 23, 10, 5), d(2025, 9, 22, 10, 0), 180), { ru: '1 день 5 минут', en: '1 day 5 minutes' });
+  assert.deepEqual(fe(d(2025, 9, 22, 10, 0), d(2025, 9, 22, 10, 0), 180), { ru: '0 минут', en: '0 minutes' });
   // Пекинское время (UTC+8) против московского (UTC+3): 17:30 в Пекине = 12:30 в Москве
-  assert.deepEqual(fe({ ...d(2026, 9, 24, 17, 30), tz: 480 }, d(2026, 9, 24, 11, 46), 180), { ru: '0 часов 44 минуты', en: '0 hours 44 minutes' });
+  assert.deepEqual(fe({ ...d(2026, 9, 24, 17, 30), tz: 480 }, d(2026, 9, 24, 11, 46), 180), { ru: '44 минуты', en: '44 minutes' });
 });
 
 test('board -> плата; images are protected from translation', () => {
@@ -550,7 +552,7 @@ test('"including night" mark for the time between messages', () => {
   assert.equal(g.night, true);
   // Ответ в тот же день днём — без ночи
   const g2 = elapsedBetween(msg('zsa@inpren.ru', 'Сергей', 2026, 9, 24, 15, 0), msg('cui@haier.com', 'Cui', 2026, 9, 24, 16, 0, 480), 180);
-  assert.equal(g2.ru, '4 часа 0 минут');
+  assert.equal(g2.ru, '4 часа');
   assert.equal(g2.night, false);
 });
 

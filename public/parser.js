@@ -639,12 +639,12 @@
     const hours = Math.floor(min / 60);
     const mins = min - hours * 60;
     const en = (n, w) => n + ' ' + w + (n === 1 ? '' : 's');
-    const ru = [hours + ' ' + plural(hours, 'час', 'часа', 'часов'), mins + ' ' + plural(mins, 'минута', 'минуты', 'минут')];
-    const eng = [en(hours, 'hour'), en(mins, 'minute')];
-    if (days > 0) {
-      ru.unshift(days + ' ' + plural(days, 'день', 'дня', 'дней'));
-      eng.unshift(en(days, 'day'));
-    }
+    // Нулевые части не пишем: "1 день 5 минут", "25 минут", "3 часа"
+    const ru = [];
+    const eng = [];
+    if (days) { ru.push(days + ' ' + plural(days, 'день', 'дня', 'дней')); eng.push(en(days, 'day')); }
+    if (hours) { ru.push(hours + ' ' + plural(hours, 'час', 'часа', 'часов')); eng.push(en(hours, 'hour')); }
+    if (mins || (!days && !hours)) { ru.push(mins + ' ' + plural(mins, 'минута', 'минуты', 'минут')); eng.push(en(mins, 'minute')); }
     const out = { ru: ru.join(' '), en: eng.join(' '), night: false };
     if (nightTz !== undefined || local !== undefined) {
       out.night = includesNight(Math.min(t(a), t(b)), Math.max(t(a), t(b)), nightTz !== undefined ? nightTz : local);
