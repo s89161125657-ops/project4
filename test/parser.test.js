@@ -580,12 +580,12 @@ test('time zone label: Moscow / Beijing, explicit offsets', () => {
     'From: LLC MicroBio + <info@mibioplus.ru>', 'Date: Tuesday, September 22, 2026, 10:30 +01:00', 'Subject: C', '', 'Body'
   ].join('\n');
   const m = parseThread(text);
-  assert.equal(tzLabel(m[0].date, 'ru', 180), 'по Москве');
+  assert.equal(tzLabel(m[0].date, 'ru', 180), 'время по Москве');
   assert.equal(tzLabel(m[0].date, 'en', 180), 'Moscow time');
-  assert.equal(tzLabel(m[1].date, 'ru', 180), 'по Пекину');
+  assert.equal(tzLabel(m[1].date, 'ru', 180), 'время по Пекину');
   assert.equal(tzLabel(m[1].date, 'en', 180), 'Beijing time');
   assert.equal(m[2].date.tz, 180);
-  assert.equal(tzLabel(m[2].date, 'ru', 0), 'по Москве');
+  assert.equal(tzLabel(m[2].date, 'ru', 0), 'время по Москве');
   assert.equal(tzLabel(m[3].date, 'en', 180), 'UTC+1');
   assert.equal(tzLabel({ y: 2026, m: 9, d: 1, hh: null, mm: null }, 'ru', 180), '');
 });

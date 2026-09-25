@@ -666,8 +666,8 @@
     const local = localTz !== undefined ? localTz : -new Date().getTimezoneOffset();
     const tz = date.tz !== undefined ? date.tz : local;
     const ru = lang === 'ru';
-    if (tz === 180) return ru ? 'по Москве' : 'Moscow time';
-    if (tz === 480) return ru ? 'по Пекину' : 'Beijing time';
+    if (tz === 180) return ru ? 'время по Москве' : 'Moscow time';
+    if (tz === 480) return ru ? 'время по Пекину' : 'Beijing time';
     const h = tz / 60;
     return 'UTC' + (h >= 0 ? '+' : '') + (Number.isInteger(h) ? h : h.toFixed(1));
   }
