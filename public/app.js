@@ -507,11 +507,11 @@
   }
 
   els.paste.addEventListener('click', pasteFromClipboard);
-  // «из буфера обмена»: текст письма из буфера — как «для Haier в почту» для выделенного письма
+  // «из буфера обмена»: текст письма из буфера — как «по письму ниже» для выделенного письма
   $('clipBtn').addEventListener('click', () => { setMode('paste'); readClipboardAndProcess(); });
   els.copy.addEventListener('click', copyResult);
   els.stripSig.addEventListener('change', () => { if (els.source.value.trim()) processText(); });
-  // Ctrl+V в любом месте страницы — текст из буфера обмена, как кнопка «для Haier в почту»
+  // Ctrl+V в любом месте страницы — текст из буфера обмена, как кнопка «по письму ниже»
   document.addEventListener('paste', (e) => {
     // Вставка в поля ввода (например, в окне «Почта») — обычная
     if (e.target && e.target.closest && e.target.closest('input, select, dialog')) return;
@@ -765,7 +765,7 @@
     }
   }
 
-  // «для Haier в почту»: выделенное письмо — как вставка из буфера; иначе — текст из буфера обмена
+  // «по письму ниже»: выделенное письмо — как вставка из буфера; иначе — текст из буфера обмена
   async function pasteFromClipboard() {
     if (mailSelected) return processMailMessage(mailSelected, 'paste');
     setMode('paste');
