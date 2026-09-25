@@ -4,14 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>ИИ-почта</title>
-  <meta name="description" content="Письма из почтового ящика, Outlook или буфера обмена в читабельном виде с параллельным переводом">
+  <meta name="description" content="Письма из почтового ящика или буфера обмена в читабельном виде с параллельным переводом">
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <div class="app">
     <!-- Слева — окно «Почта», справа — переписка -->
-    <section id="main" class="main-panel">
+    <section class="main-panel">
       <aside class="mail-panel" aria-labelledby="mailTitle">
         <div class="mail-head">
           <h2 id="mailTitle">Почта</h2>
@@ -21,6 +21,7 @@
 
         <div class="mail-actions">
           <button id="pasteBtn" class="primary" type="button" title="Выделенное письмо (или текст из буфера обмена): первые 2 письма, только перевод, с надписью для коллег из Haier">для Haier в почту</button>
+          <button id="copyBtn" type="button" disabled>Копировать результат</button>
           <button id="threadBtn" type="button" title="Выделенное письмо: вся переписка, оригинал и перевод">Переписка в читабельном виде</button>
         </div>
         <label class="option"><input type="checkbox" id="stripSig" checked> Убирать подписи в конце писем</label>
@@ -51,7 +52,7 @@
         <div id="placeholder" class="placeholder">
           Выделите письмо в окне слева и нажмите «для Haier в почту» (первые 2 письма, только перевод)
           или «Переписка в читабельном виде» (вся переписка).
-          Можно также вставить текст из буфера обмена (Ctrl+V) или перетащить письмо из Outlook в любое место страницы.
+          Можно также вставить текст из буфера обмена (Ctrl+V).
         </div>
         <div id="result" class="result" hidden></div>
       </div>
