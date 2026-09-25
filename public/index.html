@@ -3,31 +3,15 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Переписка в читабельном виде</title>
-  <meta name="description" content="Разбор e-mail переписки из буфера обмена или Outlook и параллельный перевод">
+  <title>ИИ-почта</title>
+  <meta name="description" content="Письма из почтового ящика, Outlook или буфера обмена в читабельном виде с параллельным переводом">
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <div class="app">
-    <!-- Верхняя часть: четверть экрана — управление -->
+    <!-- Сверху — область для писем из Outlook -->
     <section class="top-panel">
-      <div class="controls">
-        <div class="brand">
-          <span class="brand-mark" aria-hidden="true"></span>
-          <h1>Переписка в читабельном виде</h1>
-        </div>
-        <div class="actions">
-          <button id="pasteBtn" class="primary" type="button" title="Переводятся только первые 2 письма">Вставить из буфера обмена</button>
-          <button id="mailBtn" type="button" title="Открыть письмо из почтового ящика">Почта</button>
-          <button id="copyBtn" type="button" disabled>Копировать результат</button>
-        </div>
-        <label class="option"><input type="checkbox" id="stripSig" checked> Убирать подписи в конце писем</label>
-        <!-- Текст последней вставки (не показывается; Ctrl+V работает на всей странице) -->
-        <textarea id="source" hidden></textarea>
-        <div id="status" class="status" role="status" aria-live="polite"></div>
-        <div id="legend" class="legend"></div>
-      </div>
       <div id="dropZone" class="dropzone" role="button" tabindex="0" aria-label="Перетащите письмо из Outlook сюда или нажмите, чтобы выбрать файл">
         <span class="drop-icon" aria-hidden="true">
           <svg viewBox="0 0 48 48" width="40" height="40"><rect x="5" y="11" width="38" height="27" rx="3" fill="none" stroke="currentColor" stroke-width="3"/><path d="M7 14l17 13 17-13" fill="none" stroke="currentColor" stroke-width="3"/></svg>
@@ -38,41 +22,55 @@
       </div>
     </section>
 
-    <!-- Нижняя часть: остальные три четверти — переписка -->
-    <section class="bottom-panel">
-      <div id="placeholder" class="placeholder">
-        Нажмите «Вставить из буфера обмена» (переводятся первые 2 письма)
-        или перетащите письмо из Outlook в область «Перетащите письмо из Outlook сюда» (переводится вся переписка).
+    <!-- Снизу слева — окно «Почта», справа — переписка -->
+    <section class="main-panel">
+      <aside class="mail-panel" aria-labelledby="appTitle">
+        <div class="mail-head">
+          <span class="brand-mark" aria-hidden="true"></span>
+          <h1 id="appTitle">ИИ-почта</h1>
+          <span id="mailAccount" class="mail-account"></span>
+          <button id="mailLogout" type="button" hidden>Выйти</button>
+        </div>
+
+        <div class="mail-actions">
+          <button id="pasteBtn" class="primary" type="button" title="Выделенное письмо (или текст из буфера обмена): первые 2 письма, только перевод, с надписью для коллег из Haier">Для Haier в почту</button>
+          <button id="threadBtn" type="button" title="Выделенное письмо: вся переписка, оригинал и перевод">Переписка в читабельном виде</button>
+          <button id="copyBtn" type="button" disabled>Копировать результат</button>
+        </div>
+        <label class="option"><input type="checkbox" id="stripSig" checked> Убирать подписи в конце писем</label>
+        <!-- Текст последней вставки (не показывается; Ctrl+V работает на всей странице) -->
+        <textarea id="source" hidden></textarea>
+        <div id="status" class="status" role="status" aria-live="polite"></div>
+        <div id="legend" class="legend"></div>
+
+        <form id="mailLogin" class="mail-login">
+          <label>Адрес почты <input id="mailUser" type="email" autocomplete="username" required></label>
+          <label>Пароль <input id="mailPassword" type="password" autocomplete="current-password" required></label>
+          <button type="submit" class="primary">Войти</button>
+          <p class="mail-note">Пароль передаётся только почтовому серверу <span id="mailHost"></span> и не сохраняется на сервере приложения.</p>
+        </form>
+        <div id="mailBrowser" class="mail-browser" hidden>
+          <div class="mail-tools">
+            <select id="mailFolder" aria-label="Папка"></select>
+            <input id="mailSearch" type="search" placeholder="Поиск по теме и отправителю" aria-label="Поиск">
+            <button id="mailRefresh" type="button" title="Обновить список" aria-label="Обновить список">⟳</button>
+          </div>
+          <ul id="mailList" class="mail-list" role="listbox" aria-label="Письма"></ul>
+          <button id="mailMore" type="button" hidden>Показать ещё</button>
+          <div class="mail-hint">Щелчок — выделить письмо, двойной щелчок — открыть его целиком. Время — по Москве.</div>
+        </div>
+      </aside>
+
+      <div class="bottom-panel">
+        <div id="placeholder" class="placeholder">
+          Выделите письмо в окне слева и нажмите «Для Haier в почту» (первые 2 письма, только перевод)
+          или «Переписка в читабельном виде» (вся переписка).
+          Можно также вставить текст из буфера обмена (Ctrl+V) или перетащить письмо из Outlook в область сверху.
+        </div>
+        <div id="result" class="result" hidden></div>
       </div>
-      <div id="result" class="result" hidden></div>
     </section>
   </div>
-
-  <!-- Окно «Почта»: письма из почтового ящика (IMAP) -->
-  <dialog id="mailDialog" class="mail-dialog" aria-labelledby="mailTitle">
-    <div class="mail-head">
-      <h2 id="mailTitle">Почта</h2>
-      <span id="mailAccount" class="mail-account"></span>
-      <button id="mailLogout" type="button" hidden>Выйти</button>
-      <button id="mailClose" type="button" class="mail-close" aria-label="Закрыть">×</button>
-    </div>
-    <form id="mailLogin" class="mail-login">
-      <label>Адрес почты <input id="mailUser" type="email" autocomplete="username" required></label>
-      <label>Пароль <input id="mailPassword" type="password" autocomplete="current-password" required></label>
-      <button type="submit" class="primary">Войти</button>
-      <p class="mail-note">Пароль передаётся только почтовому серверу <span id="mailHost"></span> и не сохраняется на сервере приложения.</p>
-    </form>
-    <div id="mailBrowser" class="mail-browser" hidden>
-      <div class="mail-tools">
-        <select id="mailFolder" aria-label="Папка"></select>
-        <input id="mailSearch" type="search" placeholder="Поиск по теме и отправителю" aria-label="Поиск">
-        <button id="mailRefresh" type="button">Обновить</button>
-      </div>
-      <ul id="mailList" class="mail-list"></ul>
-      <button id="mailMore" type="button" hidden>Показать ещё</button>
-    </div>
-    <div id="mailStatus" class="status" role="status" aria-live="polite"></div>
-  </dialog>
 
   <script src="parser.js"></script>
   <script src="translate-core.js"></script>

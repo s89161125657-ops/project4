@@ -138,3 +138,15 @@ test('API: ошибки входа и неверные запросы', async ()
     assert.strictEqual((await post('/api/mail/list', { ...creds, folder: 'Нет такой' })).status, 400);
   });
 });
+
+test('parseEml: HTML-текст, картинка в тексте и прочие вложения', async () => {
+  await withApp(async (post) => {
+    const r = await post('/api/mail/message', { ...creds, folder: 'Sent', uid: 3 });
+    const mail = parseEml(new Uint8Array(Buffer.from(r.data.raw, 'base64')));
+    assert.match(mail.html, /cid:img1@x/);
+    assert.strictEqual(mail.images.length, 1);
+    assert.strictEqual(mail.images[0].cid, 'img1@x');
+    assert.deepStrictEqual(mail.files.map((f) => [f.name, f.mime]), [['report.pdf', 'application/pdf']]);
+    assert.strictEqual(Buffer.from(mail.files[0].bytes).toString(), '%PDF-1.4 test');
+  });
+});

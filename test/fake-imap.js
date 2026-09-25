@@ -57,7 +57,21 @@ const MAILBOXES = {
         'Dear Sergei,\r\nWe will send the new board tomorrow.'
     }) }
   ],
-  Sent: [],
+  Sent: [
+    { uid: 3, idate: '23-Sep-2026 11:00:00 +0300', raw: [
+      'From: Sergei Zakharov <zsa@inpren.ru>', 'To: Cui Wei <cui@haier-bio.example>',
+      'Subject: =?UTF-8?B?' + b64('Photo of the defect') + '?=', 'Date: Wed, 23 Sep 2026 11:00:00 +0300',
+      'MIME-Version: 1.0', 'Content-Type: multipart/mixed; boundary="m1"', '',
+      '--m1', 'Content-Type: multipart/related; boundary="r1"', '',
+      '--r1', 'Content-Type: text/html; charset=utf-8', 'Content-Transfer-Encoding: base64', '',
+      b64('<p>Dear Cui,</p><p>Please see the <b>photo</b> of the board:</p><p><img src="cid:img1@x"></p><script>alert(1)</script>'),
+      '--r1', 'Content-Type: image/png', 'Content-ID: <img1@x>', 'Content-Transfer-Encoding: base64', '', PNG,
+      '--r1--',
+      '--m1', 'Content-Type: application/pdf; name="report.pdf"', 'Content-Disposition: attachment; filename="report.pdf"',
+      'Content-Transfer-Encoding: base64', '', b64('%PDF-1.4 test'),
+      '--m1--', ''
+    ].join('\r\n') }
+  ],
   '&BCEEPwQwBDw-': [] // «Спам» в modified UTF-7
 };
 

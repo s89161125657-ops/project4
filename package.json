@@ -1,7 +1,7 @@
 {
   "name": "mail-thread-translator",
   "version": "1.0.0",
-  "description": "Разбор e-mail переписки из буфера обмена и параллельный перевод на русский язык",
+  "description": "ИИ-почта: переписка в читабельном виде с параллельным переводом",
   "main": "server.js",
   "private": true,
   "scripts": {

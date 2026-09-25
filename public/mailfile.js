@@ -536,7 +536,12 @@
       });
       return found;
     }
-    if (/attachment/i.test(h['content-disposition'] || '')) return found;
+    const fileName = decodeWords(param(h['content-disposition'], 'filename') || param(h['content-type'], 'name'));
+    // Прочие вложения (документы, архивы, вложенные письма) — для окна просмотра письма
+    if (/attachment/i.test(h['content-disposition'] || '') || !/^text\/(plain|html)/.test(ctype)) {
+      (found.files = found.files || []).push({ name: fileName || 'attachment', mime: ctype.split(';')[0].trim(), bytes: decode() });
+      return found;
+    }
     const bytes = decode();
     const text = decodeBytes(bytes, param(h['content-type'], 'charset') || 'utf-8');
     if (/^text\/plain/.test(ctype) && found.plain === undefined) found.plain = text;
@@ -565,7 +570,10 @@
       to: hdr('to'),
       cc: hdr('cc'),
       date: date && !isNaN(date) ? date : null,
-      body
+      body,
+      plain: found.plain,
+      html: found.html,
+      files: found.files || []
     };
   }
 
