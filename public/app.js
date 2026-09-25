@@ -137,7 +137,8 @@
   }
 
   function cellHtml(color, header, bodyHtml, extraStyle) {
-    return '<td style="vertical-align:top;width:50%;padding:10px 14px 14px;background:' + tint(color, 0.09) + ';' +
+    // ширина задаётся таблицей: 2 колонки по 50% или одна на всю ширину
+    return '<td style="vertical-align:top;padding:10px 14px 14px;background:' + tint(color, 0.09) + ';' +
       'border-left:6px solid ' + color + ';color:' + color + ';word-wrap:break-word;overflow-wrap:anywhere;' +
       (extraStyle || '') + '">' +
       '<div style="margin:0 0 6px;font-size:14px;padding-bottom:4px;border-bottom:1px solid ' + tint(color, 0.35) + ';">' + header + '</div>' +
@@ -211,17 +212,19 @@
   }
 
   // ---------- Время между письмами ----------
-  function gapRowHtml(a, b) {
+  function gapRowHtml(a, b, cols) {
     const gap = elapsedBetween(a, b);
     if (!gap) return '';
-    return '<tr><td colspan="2" style="padding:6px 14px;background:#f1f3f5;color:#495057;text-align:center;' +
+    return '<tr><td colspan="' + cols + '" style="padding:6px 14px;background:#f1f3f5;color:#495057;text-align:center;' +
       'font-size:13px;border-top:1px solid #e3e6ea;">' +
       '&#9201; Time between messages: <b>' + esc(gap.en) + '</b>' + (gap.night ? ' (including night)' : '') +
       ' &nbsp;/&nbsp; Между письмами прошло: <b>' + esc(gap.ru) + '</b>' + (gap.night ? ' (включая ночь)' : '') +
       '</td></tr>';
   }
 
-  function buildHtml(messages, translations, colorMap, withBanner) {
+  // pasteMode: вставка из буфера — надпись для коллег и только колонка перевода
+  function buildHtml(messages, translations, colorMap, pasteMode) {
+    const cols = pasteMode ? 1 : 2;
     const rows = messages.map((msg, i) => {
       const color = colorFor(msg, colorMap);
       const tr = translations ? translations[i] : null;
@@ -233,17 +236,17 @@
       else if (tr.error) rightBody = '<span style="color:#b3261e">' + esc(tr.error) + '</span>';
       else rightBody = linesHtml(tr.lines, msg.target);
       const sep = i > 0 ? 'border-top:1px solid #e3e6ea;' : '';
-      return (i > 0 ? gapRowHtml(messages[i - 1], msg) : '') + '<tr>' +
-        cellHtml(color, leftHeader, linesHtml(msg.lines, ''), sep) +
+      return (i > 0 ? gapRowHtml(messages[i - 1], msg, cols) : '') + '<tr>' +
+        (pasteMode ? '' : cellHtml(color, leftHeader, linesHtml(msg.lines, ''), sep)) +
         cellHtml(color, rightHeader, rightBody, sep) +
         '</tr>';
     }).join('');
 
     return '<div style="font-family:Calibri,Arial,Helvetica,sans-serif;font-size:14px;line-height:1.45;color:#1c1e21;">' +
-      (withBanner ? '<p style="color:' + HEADER_GREEN + ';font-weight:bold;margin:0 0 14px;font-size:14px;">' +
+      (pasteMode ? '<p style="color:' + HEADER_GREEN + ';font-weight:bold;margin:0 0 14px;font-size:14px;">' +
         BANNER_LINES.map(esc).join('<br>') + '</p>' : '') +
-      '<table cellspacing="0" cellpadding="0" style="border-collapse:collapse;width:100%;min-width:640px;table-layout:fixed;">' +
-      '<colgroup><col style="width:50%"><col style="width:50%"></colgroup>' +
+      '<table cellspacing="0" cellpadding="0" style="border-collapse:collapse;width:100%;' + (pasteMode ? '' : 'min-width:640px;') + 'table-layout:fixed;">' +
+      (pasteMode ? '' : '<colgroup><col style="width:50%"><col style="width:50%"></colgroup>') +
       '<tbody>' + rows + '</tbody></table></div>';
   }
 
@@ -419,7 +422,7 @@
       }
       const head = (d, lang) => ((lang && msg.name ? applyGlossary(msg.name, lang) : msg.name) || msg.email || 'Отправитель не определён') +
         (d ? ', ' + d : '');
-      out.push(head(msg.dateRaw), ...msg.lines, '');
+      if (current.mode !== 'paste') out.push(head(msg.dateRaw), ...msg.lines, '');
       if (tr && tr.lines) out.push(head(msg.dateDisplay || (msg.date ? formatDateRu(msg.date) : tr.date || msg.dateRaw), msg.target), ...tr.lines, '');
     });
     return out.join('\n');
