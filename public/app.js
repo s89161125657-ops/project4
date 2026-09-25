@@ -30,7 +30,7 @@
   const $ = (id) => document.getElementById(id);
   const els = {
     paste: $('pasteBtn'), copy: $('copyBtn'),
-    stripSig: $('stripSig'), drop: $('dropZone'), placeholder: $('placeholder'), file: $('fileInput'), source: $('source'), sourceBox: $('sourceBox'),
+    stripSig: $('stripSig'), drop: $('dropZone'), placeholder: $('placeholder'), file: $('fileInput'), source: $('source'),
     status: $('status'), legend: $('legend'), result: $('result')
   };
 
@@ -379,7 +379,7 @@
     const senders = new Set(messages.map((m) => senderKey(m) || '?')).size;
     const summary = (messages.length < all.length
       ? 'Показаны первые ' + messages.length + ' письма из ' + all.length
-      : 'Писем: ' + messages.length) + ', отправителей: ' + senders + '.';
+      : 'Писем: ' + messages.length) + '. Отправителей: ' + senders + '.';
     setStatus(summary + ' Перевожу…');
     render();
 
@@ -448,9 +448,7 @@
       els.source.value = text;
       processText();
     } catch (e) {
-      els.sourceBox.open = true;
-      els.source.focus();
-      setStatus('Браузер не дал доступ к буферу обмена. Вставьте текст в поле «Исходный текст» сочетанием Ctrl+V.', true);
+      setStatus('Браузер не дал доступ к буферу обмена. Нажмите Ctrl+V в любом месте страницы.', true);
     }
   }
 
@@ -565,5 +563,15 @@
   els.paste.addEventListener('click', pasteFromClipboard);
   els.copy.addEventListener('click', copyResult);
   els.stripSig.addEventListener('change', () => { if (els.source.value.trim()) processText(); });
-  els.source.addEventListener('paste', () => setTimeout(() => { setMode('paste'); imageStore.clear(); dropAttachments = []; processText(); }, 0));
+  // Ctrl+V в любом месте страницы — то же, что кнопка «Вставить из буфера обмена»
+  document.addEventListener('paste', (e) => {
+    const text = e.clipboardData ? e.clipboardData.getData('text/plain') : '';
+    if (!text.trim()) return;
+    e.preventDefault();
+    setMode('paste');
+    imageStore.clear();
+    dropAttachments = [];
+    els.source.value = text;
+    processText();
+  });
 })();

@@ -22,10 +22,8 @@
           <button id="copyBtn" type="button" disabled>Копировать результат</button>
         </div>
         <label class="option"><input type="checkbox" id="stripSig" checked> Убирать подписи в конце писем</label>
-        <details id="sourceBox">
-          <summary>Исходный текст</summary>
-          <textarea id="source" spellcheck="false" placeholder="Сюда можно вставить текст переписки вручную (Ctrl+V)…"></textarea>
-        </details>
+        <!-- Текст последней вставки (не показывается; Ctrl+V работает на всей странице) -->
+        <textarea id="source" hidden></textarea>
         <div id="status" class="status" role="status" aria-live="polite"></div>
         <div id="legend" class="legend"></div>
       </div>
@@ -43,7 +41,7 @@
     <section class="bottom-panel">
       <div id="placeholder" class="placeholder">
         Нажмите «Вставить из буфера обмена» (переводятся первые 2 письма)
-        или перетащите письмо из Outlook в оранжевую рамку (переводится вся переписка).
+        или перетащите письмо из Outlook в область «Перетащите письмо из Outlook сюда» (переводится вся переписка).
       </div>
       <div id="result" class="result" hidden></div>
     </section>
