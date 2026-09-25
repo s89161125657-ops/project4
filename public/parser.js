@@ -539,6 +539,11 @@
       // Заголовок цитаты пишет почта отвечающего в своём часовом поясе.
       // Дата в китайском формате (2026年9月24日) — почта в Китае: пекинское время, UTC+8.
       if (msg.date && /[年月日]|上午|下午/.test(msg.dateRaw)) msg.date.tz = 480;
+      // Явно указанный часовой пояс: "Дата: Вторник, 22 сентября 2026, 12:18 +03:00", "GMT+8"
+      const tzm = msg.date && /(?:GMT|UTC)?\s*([+-])(\d{1,2})(?::?(\d{2}))?\s*$/.exec(msg.dateRaw);
+      if (tzm && /\d[:：]\d{2}/.test(msg.dateRaw) && (/GMT|UTC/i.test(tzm[0]) || tzm[3] !== undefined)) {
+        msg.date.tz = (tzm[1] === '-' ? -1 : 1) * ((+tzm[2]) * 60 + (+(tzm[3] || 0)));
+      }
     }
     return messages;
   }
@@ -652,6 +657,21 @@
     return out;
   }
 
+  /**
+   * Подпись часового пояса для строки отправителя: "по Москве" / "по Пекину"
+   * (lang 'ru') или "Moscow time" / "Beijing time" (lang 'en'). Без времени — ''.
+   */
+  function tzLabel(date, lang, localTz) {
+    if (!date || date.hh === null || date.hh === undefined) return '';
+    const local = localTz !== undefined ? localTz : -new Date().getTimezoneOffset();
+    const tz = date.tz !== undefined ? date.tz : local;
+    const ru = lang === 'ru';
+    if (tz === 180) return ru ? 'по Москве' : 'Moscow time';
+    if (tz === 480) return ru ? 'по Пекину' : 'Beijing time';
+    const h = tz / 60;
+    return 'UTC' + (h >= 0 ? '+' : '') + (Number.isInteger(h) ? h : h.toFixed(1));
+  }
+
   // Ночь — с 23:00 до 7:00 по местному времени (tz — смещение от UTC в минутах)
   const NIGHT_START = 23;
   const NIGHT_END = 7;
@@ -694,5 +714,5 @@
     return s;
   }
 
-  return { IMAGE_MARKER_SRC, formatElapsed, elapsedBetween, includesNight, parseThread, stripExcludedPhrases, stripSignature, stripDisclaimers, parseRecipients, parseDate, parseSender, formatDateRu, normalize };
+  return { IMAGE_MARKER_SRC, tzLabel, formatElapsed, elapsedBetween, includesNight, parseThread, stripExcludedPhrases, stripSignature, stripDisclaimers, parseRecipients, parseDate, parseSender, formatDateRu, normalize };
 });

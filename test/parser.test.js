@@ -570,3 +570,22 @@ test('a previous translation block for Haier colleagues is cut off', () => {
   assert.equal(formatDateRu(m.date), '23.09.2026 15:55');
   assert.deepEqual(m.lines, ['Здравствуйте, Инна', 'Буду звонить утром.']);
 });
+
+test('time zone label: Moscow / Beijing, explicit offsets', () => {
+  const { tzLabel } = require('../public/parser');
+  const text = [
+    'From: Cui <cui@haier.com>', 'Sent: Tuesday, September 22, 2026 4:48 PM', 'Subject: A', '', 'Hi',
+    '发件人: Захаров Сергей <zsa@inpren.ru>', '发送时间: 2026年9月22日 18:54', '主题: B', '', 'Text',
+    'От кого: Захаров Сергей <zsa@inpren.ru>', "Кому: 'ООО МикроБио +' <info@mibioplus.ru>", 'Дата: Вторник, 22 сентября 2026, 12:18 +03:00', '', 'Текст',
+    'From: LLC MicroBio + <info@mibioplus.ru>', 'Date: Tuesday, September 22, 2026, 10:30 +01:00', 'Subject: C', '', 'Body'
+  ].join('\n');
+  const m = parseThread(text);
+  assert.equal(tzLabel(m[0].date, 'ru', 180), 'по Москве');
+  assert.equal(tzLabel(m[0].date, 'en', 180), 'Moscow time');
+  assert.equal(tzLabel(m[1].date, 'ru', 180), 'по Пекину');
+  assert.equal(tzLabel(m[1].date, 'en', 180), 'Beijing time');
+  assert.equal(m[2].date.tz, 180);
+  assert.equal(tzLabel(m[2].date, 'ru', 0), 'по Москве');
+  assert.equal(tzLabel(m[3].date, 'en', 180), 'UTC+1');
+  assert.equal(tzLabel({ y: 2026, m: 9, d: 1, hh: null, mm: null }, 'ru', 180), '');
+});

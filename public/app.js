@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  const { parseThread, formatDateRu, elapsedBetween, IMAGE_MARKER_SRC } = window.MailParser;
+  const { parseThread, formatDateRu, elapsedBetween, tzLabel, IMAGE_MARKER_SRC } = window.MailParser;
   const { translateText, isMostlyRussian, applyGlossary, collectNames, protectNames, restoreNames,
     protectImages, restoreImages } = window.TranslateCore;
 
@@ -124,7 +124,12 @@
     if (lang && msg.name) who = applyGlossary(who, lang);
     let line = '<b>' + esc(who) + '</b>';
     parts.push(line);
-    if (dateText) parts.push(esc(dateText));
+    if (dateText) {
+      // Часовой пояс: в колонке перевода — на языке перевода, в оригинале — на языке письма
+      const tzLang = lang || (msg.target === 'en' ? 'ru' : 'en');
+      const tz = tzLabel(msg.date, tzLang);
+      parts.push(esc(dateText) + (tz ? ' (' + esc(tz) + ')' : ''));
+    }
     return parts.join(', ');
   }
 
@@ -420,8 +425,11 @@
         out.push('--- Time between messages: ' + gap.en + (gap.night ? ' (including night)' : '') +
           ' / Между письмами прошло: ' + gap.ru + (gap.night ? ' (включая ночь)' : '') + ' ---', '');
       }
-      const head = (d, lang) => ((lang && msg.name ? applyGlossary(msg.name, lang) : msg.name) || msg.email || 'Отправитель не определён') +
-        (d ? ', ' + d : '');
+      const head = (d, lang) => {
+        const tz = d ? tzLabel(msg.date, lang || (msg.target === 'en' ? 'ru' : 'en')) : '';
+        return ((lang && msg.name ? applyGlossary(msg.name, lang) : msg.name) || msg.email || 'Отправитель не определён') +
+          (d ? ', ' + d + (tz ? ' (' + tz + ')' : '') : '');
+      };
       if (current.mode !== 'paste') out.push(head(msg.dateRaw), ...msg.lines, '');
       if (tr && tr.lines) out.push(head(msg.dateDisplay || (msg.date ? formatDateRu(msg.date) : tr.date || msg.dateRaw), msg.target), ...tr.lines, '');
     });
