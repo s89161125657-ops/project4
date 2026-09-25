@@ -553,3 +553,18 @@ test('"including night" mark for the time between messages', () => {
   assert.equal(g2.ru, '4 часа 0 минут');
   assert.equal(g2.night, false);
 });
+
+test('a previous translation block for Haier colleagues is cut off', () => {
+  const text = [
+    'От кого: Захаров Сергей <zsa@inpren.ru>', "Кому: 'ООО МикроБио +' <info@mibioplus.ru>", 'Дата: Среда, 23 сентября 2026, 15:55 +03:00', '',
+    'Здравствуйте, Инна', 'Буду звонить утром.', '',
+    'Ниже изложен перевод для коллег из Haier Biomedical:',
+    'Translation of the above text, made using Google Translate (only for information for colleagues from Haier Biomedical):',
+    'Dear, Inna.', 'I will call in the morning.', '',
+    'С уважением,', 'Захаров Сергей Александрович', 'Руководитель проектов', 'моб: +7 (965) 426-11-50'
+  ].join('\n');
+  const [m] = parseThread(text);
+  assert.equal(m.name, 'Захаров Сергей');
+  assert.equal(formatDateRu(m.date), '23.09.2026 15:55');
+  assert.deepEqual(m.lines, ['Здравствуйте, Инна', 'Буду звонить утром.']);
+});

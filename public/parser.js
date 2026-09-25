@@ -418,8 +418,16 @@
     return text.split('\n');
   }
 
+  // Перевод для коллег, уже вставленный в прежнее письмо ("Ниже изложен перевод ... для коллег
+  // из Haier Biomedical" / "translation of the above ...") — дубликат, отрезаем до конца письма
+  const OLD_TRANSLATION_RE = /^\s*(?:ниже изложен перевод|translation of the above)/i;
+  function stripOldTranslation(lines) {
+    const i = lines.findIndex((l) => OLD_TRANSLATION_RE.test(l));
+    return i >= 0 ? lines.slice(0, i) : lines;
+  }
+
   function cleanBody(lines, opts) {
-    const out = stripDisclaimers(stripExcludedPhrases(lines))
+    const out = stripDisclaimers(stripExcludedPhrases(stripOldTranslation(lines)))
       .map((l) => l.replace(/\t/g, '    ').replace(/\s+$/, ''))
       .filter((l) => !isBlank(l) && !isNoise(l))
       .map((l) => l.trim());
