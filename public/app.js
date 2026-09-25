@@ -8,7 +8,7 @@
   const HEADER_GREEN = '#006400';
   const NAVY = '#000080';
   const UNKNOWN_COLOR = '#616161';
-  const BROWN = '#8b4513';
+  const BROWN = '#5a2d0c'; // тёмно-коричневый
   // Постоянные цвета: письма zsa@inpren.ru — тёмно-синие, письма Cui — коричневые
   function fixedColor(msg) {
     const email = (msg.email || '').toLowerCase();
@@ -170,6 +170,32 @@
     return btoa(bin);
   }
 
+  // Картинки-вложения перетащенных писем (прикреплены к письму, но не стоят в его тексте)
+  let dropAttachments = [];
+
+  // Картинка не упоминается в тексте письма ([cid:...] / имя файла) — значит, это вложение
+  function findAttachments(mail) {
+    const text = mail.text.toLowerCase();
+    return mail.images.filter((img) => {
+      const cid = (img.cid || '').toLowerCase();
+      const name = (img.name || '').toLowerCase();
+      if (cid && (text.includes('cid:' + cid) || text.includes('cid:' + cid.split('@')[0]))) return false;
+      if (name && text.includes('[cid:' + name)) return false;
+      return true;
+    }).map((img) => ({
+      name: img.name || 'image',
+      src: BROWSER_IMAGE.test(img.mime) ? 'data:' + img.mime + ';base64,' + bytesToBase64(img.bytes) : ''
+    }));
+  }
+
+  function attachmentsHtml(atts, lang) {
+    if (!atts || !atts.length) return '';
+    const title = lang === 'ru' ? 'Вложение в письмо:' : 'Attachment to the email:';
+    return '<div style="margin-top:12px;"><b>' + title + '</b></div>' + atts.map((a) => a.src
+      ? '<div style="margin-top:6px;"><img src="' + esc(a.src) + '" alt="' + esc(a.name) + '" style="display:inline-block;max-width:100%;max-height:420px;border:1px solid #e3e6ea;"></div>'
+      : '<div style="margin-top:6px;color:#6b7280;font-style:italic;">[' + esc(a.name) + ']</div>').join('');
+  }
+
   function registerImages(images) {
     for (const img of images) {
       if (!BROWSER_IMAGE.test(img.mime)) continue;
@@ -246,9 +272,11 @@
       if (!tr) rightBody = '<span class="pending">Перевод…</span>';
       else if (tr.error) rightBody = '<span style="color:#b3261e">' + esc(tr.error) + '</span>';
       else rightBody = linesHtml(tr.lines, msg.target);
+      rightBody += attachmentsHtml(msg.attachments, msg.target);
       const sep = i > 0 ? 'border-top:1px solid #e3e6ea;' : '';
       return (i > 0 ? gapRowHtml(messages[i - 1], msg, cols) : '') + '<tr>' +
-        (pasteMode ? '' : cellHtml(color, leftHeader, linesHtml(msg.lines, ''), sep)) +
+        (pasteMode ? '' : cellHtml(color, leftHeader, linesHtml(msg.lines, '') +
+          attachmentsHtml(msg.attachments, msg.target === 'en' ? 'ru' : 'en'), sep)) +
         cellHtml(color, rightHeader, rightBody, sep) +
         '</tr>';
     }).join('');
@@ -333,6 +361,11 @@
       me.dateRaw = formatStamp(pastedAt);
       me.date = { y: pastedAt.getFullYear(), m: pastedAt.getMonth() + 1, d: pastedAt.getDate(), hh: pastedAt.getHours(), mm: pastedAt.getMinutes() };
     }
+    // Вложения перетащенного письма — к первому письму этого отправителя (это само письмо, остальные — цитаты)
+    for (const d of dropAttachments) {
+      const m = all.find((x) => !x.attachments && ((d.email && x.email === d.email) || (!d.email && d.name && x.name === d.name)));
+      if (m) m.attachments = d.atts;
+    }
     const messages = mode === 'paste' ? all.slice(0, 2) : all;
     for (const msg of messages) {
       const body = msg.lines.join('\n').replace(IMAGE_RE, ' ');
@@ -412,6 +445,7 @@
         return;
       }
       imageStore.clear();
+      dropAttachments = [];
       els.source.value = text;
       processText();
     } catch (e) {
@@ -435,8 +469,10 @@
         return ((lang && msg.name ? applyGlossary(msg.name, lang) : msg.name) || msg.email || 'Отправитель не определён') +
           (d ? ', ' + d : '');
       };
-      if (current.mode !== 'paste') out.push(head(''), ...msg.lines, '');
-      if (tr && tr.lines) out.push(head(msg.target), ...tr.lines, '');
+      const attLine = (lang) => msg.attachments && msg.attachments.length
+        ? [(lang === 'ru' ? 'Вложение в письмо: ' : 'Attachment to the email: ') + msg.attachments.map((a) => a.name).join(', ')] : [];
+      if (current.mode !== 'paste') out.push(head(''), ...msg.lines, ...attLine(msg.target === 'en' ? 'ru' : 'en'), '');
+      if (tr && tr.lines) out.push(head(msg.target), ...tr.lines, ...attLine(msg.target), '');
     });
     return out.join('\n');
   }
@@ -475,6 +511,8 @@
       const bytes = new Uint8Array(await f.arrayBuffer());
       const mail = window.MailFile.fileToMail(f.name, bytes);
       registerImages(mail.images);
+      const atts = findAttachments(mail);
+      if (atts.length) dropAttachments.push({ email: (mail.fromEmail || '').toLowerCase(), name: mail.fromName, atts });
       parts.push(mail.text);
     }
     return parts.join('\n\n');
@@ -484,6 +522,7 @@
     try {
       let text = '';
       imageStore.clear();
+      dropAttachments = [];
       if (dt.files && dt.files.length) {
         text = await filesToText([...dt.files]);
       } else {
@@ -527,5 +566,5 @@
   els.paste.addEventListener('click', pasteFromClipboard);
   els.copy.addEventListener('click', copyResult);
   els.stripSig.addEventListener('change', () => { if (els.source.value.trim()) processText(); });
-  els.source.addEventListener('paste', () => setTimeout(() => { setMode('paste'); imageStore.clear(); processText(); }, 0));
+  els.source.addEventListener('paste', () => setTimeout(() => { setMode('paste'); imageStore.clear(); dropAttachments = []; processText(); }, 0));
 })();

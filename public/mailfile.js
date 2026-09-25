@@ -600,7 +600,7 @@
     let mail = null;
     if (isCfb(bytes)) mail = parseMsg(bytes);
     else if (/\.(eml|mht|mhtml)$/i.test(name) || /^(?:[\w-]+:.*\r?\n)+/.test(bytesToLatin1(bytes.subarray(0, 2000)))) mail = parseEml(bytes);
-    if (mail) return { text: mailToText(mail), images: mail.images || [] };
+    if (mail) return { text: mailToText(mail), images: mail.images || [], fromEmail: mail.fromEmail || '', fromName: mail.fromName || '' };
     const text = decodeBytes(bytes, 'utf-8');
     return { text: /<html|<body|<div|<p[\s>]/i.test(text) ? htmlToText(text) : text, images: [] };
   }
